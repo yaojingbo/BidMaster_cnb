@@ -492,6 +492,45 @@ def extract_text_from_content(content: bytes) -> tuple[str, bool]:
     return "", False
 
 
+async def extract_text_with_ocr(
+    content: bytes,
+    provider: str = "deepseek",
+    model: Optional[str] = None,
+    user_id: Optional[str] = None,
+    ocr_params: Optional[dict] = None,
+    progress_callback=None,
+    cancel_event: asyncio.Event | None = None,
+) -> tuple[str, bool, str | None]:
+    text, needs_ocr = extract_text_from_content(content)
+    if not needs_ocr:
+        return text, False, None
+
+    params = ocr_params or {}
+    try:
+        from app.services.ocr_service import ocr_pdf, resolve_vision_model
+
+        eff_provider, eff_model = resolve_vision_model(provider, model)
+        ocr_engine, ocr_pages, ocr_max_pages, ocr_timeout_seconds = _resolve_ocr_runtime_params(params)
+        ocr_text = await ocr_pdf(
+            content,
+            eff_provider,
+            eff_model,
+            user_id,
+            progress_callback=progress_callback,
+            page_numbers=ocr_pages,
+            engine=ocr_engine,
+            max_pages=ocr_max_pages,
+            timeout_seconds=ocr_timeout_seconds,
+            cancel_event=cancel_event,
+        )
+        if ocr_text.strip():
+            text = "\n\n".join(part for part in [text.strip(), ocr_text.strip()] if part)
+        return text, True, None
+    except Exception as exc:
+        logger.warning("OCR 解析失败: %s", exc)
+        return text, True, str(exc)
+
+
 class ExtractService:
     """Service for extracting elements from tender documents."""
 
@@ -911,48 +950,43 @@ class ExtractService:
             yield {"type": "progress", "message": f"正在读取 {total} 个文件...", "phase": "reading", "percentage": 5}
 
             # 并行下载 + 解析所有文件
-            async def fetch_and_parse(fid: str) -> tuple[str, str]:
+            async def fetch_and_parse(fid: str) -> tuple[str, str, str | None]:
                 try:
                     content = await self.file_service.download(fid, user_id)
-                    text, needs_ocr = extract_text_from_content(content)
-                    if needs_ocr:
-                        try:
-                            from app.services.ocr_service import ocr_pdf, resolve_vision_model
-                            eff_provider, eff_model = resolve_vision_model(provider, model)
-                            ocr_text = await ocr_pdf(
-                                content,
-                                eff_provider,
-                                eff_model,
-                                user_id,
-                                page_numbers=ocr_params.get("ocr_pages"),
-                                engine=ocr_engine,
-                                max_pages=_resolve_ocr_runtime_params(ocr_params)[2],
-                                timeout_seconds=_resolve_ocr_runtime_params(ocr_params)[3],
-                            )
-                            if ocr_text.strip():
-                                text = "\n\n".join(part for part in [text.strip(), ocr_text.strip()] if part)
-                        except Exception as ocr_err:
-                            logger.warning("批量提取 OCR 失败: file_id=%s, error=%s", fid, ocr_err)
-                    return fid, text
+                    text, needs_ocr, ocr_error = await extract_text_with_ocr(
+                        content,
+                        provider,
+                        model,
+                        user_id,
+                        ocr_params,
+                    )
+                    if not text.strip():
+                        return fid, "", ocr_error or ("OCR 未识别到文字" if needs_ocr else "内容为空")
+                    return fid, text, None
                 except Exception as e:
-                    return fid, f"[读取失败: {e}]"
+                    return fid, "", f"读取失败: {e}"
 
             results = await asyncio.gather(*[fetch_and_parse(fid) for fid in file_ids])
 
             # 合并文本
             all_parts = []
             success_count = 0
-            for fid, text in results:
-                if not text.strip():
-                    all_parts.append(f"## 文件: {fid}\n[内容为空]\n")
-                elif text.startswith("[读取失败"):
-                    all_parts.append(f"## 文件: {fid}\n{text}\n")
-                else:
+            failure_messages = []
+            for fid, text, error in results:
+                if error:
+                    failure_messages.append(f"{fid}: {error}")
+                    all_parts.append(f"## 文件: {fid}\n[{error}]\n")
+                elif text.strip():
                     success_count += 1
                     all_parts.append(f"## 文件: {fid}\n{text[:50000]}\n")
+                else:
+                    failure_messages.append(f"{fid}: 内容为空")
+                    all_parts.append(f"## 文件: {fid}\n[内容为空]\n")
 
             if success_count < 2:
-                yield {"type": "error", "data": {"message": f"至少需要 2 个有效文件，当前仅有 {success_count} 个"}}
+                detail = "；".join(failure_messages[:3])
+                suffix = f"。失败原因：{detail}" if detail else ""
+                yield {"type": "error", "data": {"message": f"至少需要 2 个有效文件，当前仅有 {success_count} 个{suffix}"}}
                 return
 
             combined = "\n\n---\n\n".join(all_parts)

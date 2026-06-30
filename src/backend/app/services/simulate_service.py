@@ -18,6 +18,7 @@ from app.services.extract_service import (
     _format_extract_result,
     _normalize_elements,
     _parse_llm_json_response,
+    extract_text_with_ocr,
 )
 from app.services.prompt_builder import ELEMENT_NAMES
 
@@ -190,35 +191,31 @@ class SimulateService:
         if not task:
             raise ValueError(f"Task {task_id} not found")
 
-        # Try to convert PDF files to markdown
         converted = []
         failed = []
 
         from app.services.file_service import get_file_service
         file_service = get_file_service()
 
-        # Try to convert files to text
-        from app.services.extract_service import extract_text_from_content
-
         for file_id in task.file_ids:
             try:
                 content = await file_service.download(file_id, user_id)
-                text, _ = extract_text_from_content(content)
+                text, needs_ocr, ocr_error = await extract_text_with_ocr(content, user_id=user_id)
+                if not text.strip():
+                    failed.append({"file_id": file_id, "error": ocr_error or "文档内容为空或无法解析"})
+                    continue
 
                 converted.append({
                     "file_id": file_id,
                     "content_length": len(text),
-                    "status": "converted",
+                    "status": "converted_ocr" if needs_ocr else "converted",
                 })
             except Exception as e:
                 failed.append({"file_id": file_id, "error": str(e)})
 
-        task.step1_result = json.dumps({"converted": converted, "failed": failed})
+        task.step1_result = json.dumps({"converted": converted, "failed": failed}, ensure_ascii=False)
         task.current_step = 1
-        task.status = "step2_extract"
-
-        if not failed or len(converted) > 0:
-            task.status = "step2_extract"
+        task.status = "step2_extract" if converted else "error"
 
         await update_simulate(task_id, {
             "status": task.status,
@@ -238,7 +235,6 @@ class SimulateService:
 
         # Get file contents
         from app.services.file_service import get_file_service
-        from app.services.extract_service import extract_text_from_content
         from app.services.prompt_builder import get_prompt_builder
         file_service = get_file_service()
 
@@ -258,13 +254,27 @@ class SimulateService:
             return
 
         combined_text = ""
+        parse_failures = []
         for file_id in task.file_ids:
             try:
                 content = await file_service.download(file_id, user_id)
-                text, _ = extract_text_from_content(content)
-                combined_text += f"\n## 文件: {file_id}\n{text[:STEP2_PER_FILE_MAX_CHARS]}\n---\n"
-            except Exception:
-                pass
+                text, needs_ocr, ocr_error = await extract_text_with_ocr(content, provider, model, user_id)
+                if not text.strip():
+                    parse_failures.append(f"{file_id}: {ocr_error or '内容为空'}")
+                    continue
+                ocr_label = "（OCR识别）" if needs_ocr else ""
+                combined_text += f"\n## 文件: {file_id}{ocr_label}\n{text[:STEP2_PER_FILE_MAX_CHARS]}\n---\n"
+            except Exception as exc:
+                parse_failures.append(f"{file_id}: {exc}")
+
+        if not combined_text.strip():
+            message = "所有文件均无法解析"
+            if parse_failures:
+                message += "：" + "；".join(parse_failures[:3])
+            yield {"type": "error", "data": {"message": message}}
+            return
+        if parse_failures:
+            yield {"type": "progress", "message": f"部分文件解析失败，已跳过 {len(parse_failures)} 个文件", "phase": "parsing", "percentage": 25}
 
         builder = get_prompt_builder()
         system_prompt = builder.build_extract_system_prompt("standard")
