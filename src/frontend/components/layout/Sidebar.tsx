@@ -13,6 +13,7 @@ import {
   ScrollText,
   Settings,
   Terminal,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BidMasterLogo } from '@/components/layout/BidMasterLogo';
@@ -24,6 +25,7 @@ const navItems = [
   { href: '/cli', label: 'CLI', icon: Terminal },
   { href: '/database', label: '文件管理', icon: Settings },
   { href: '/settings', label: 'AI 设置', icon: Settings },
+  { href: '/docs', label: '文档', icon: BookOpen },
 ];
 
 export function Sidebar() {
@@ -68,6 +70,17 @@ export function Sidebar() {
         </nav>
 
         <div className="flex shrink-0 items-center justify-end gap-2 sm:gap-3">
+          <Link
+            href="/docs"
+            title="文档说明"
+            aria-label="文档说明"
+            className={cn(
+              'inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+              pathname === '/docs' && 'bg-muted text-primary'
+            )}
+          >
+            <BookOpen className="h-4 w-4" />
+          </Link>
           <Link
             href="/logs"
             title="系统日志"
