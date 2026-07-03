@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -138,6 +139,18 @@ export default function HomePage() {
           </Link>
         </div>
       </section>
+
+      <footer className="mt-12 flex justify-center border-t border-border pt-6 text-sm text-muted-foreground">
+        <a
+          href="https://beian.mps.gov.cn/#/query/webSearch?code=33010202005876"
+          rel="noreferrer"
+          target="_blank"
+          className="inline-flex items-center gap-2 transition-colors hover:text-foreground"
+        >
+          <Image src="/beian-icon.png" alt="公安备案图标" width={16} height={16} />
+          浙公网安备33010202005876号
+        </a>
+      </footer>
     </div>
   );
 }
