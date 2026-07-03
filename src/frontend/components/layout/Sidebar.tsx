@@ -14,6 +14,7 @@ import {
   Settings,
   Terminal,
   BookOpen,
+  ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BidMasterLogo } from '@/components/layout/BidMasterLogo';
@@ -25,7 +26,11 @@ const navItems = [
   { href: '/cli', label: 'CLI', icon: Terminal },
   { href: '/database', label: '文件管理', icon: Settings },
   { href: '/settings', label: 'AI 设置', icon: Settings },
-  { href: '/docs', label: '文档', icon: BookOpen },
+];
+
+const docsItems = [
+  { href: '/docs', label: '文档说明', external: false },
+  { href: 'https://cnb.cool/yaojingbo-2026/bidmasterISSUE', label: 'Issue 反馈', external: true },
 ];
 
 export function Sidebar() {
@@ -67,6 +72,35 @@ export function Sidebar() {
               </Link>
             );
           })}
+          <div className="group relative">
+            <button
+              type="button"
+              className={cn(
+                'inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium transition-colors lg:px-4',
+                pathname === '/docs'
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              )}
+            >
+              <BookOpen className="h-4 w-4" />
+              文档
+              <ChevronDown className="h-3.5 w-3.5 transition-transform group-hover:rotate-180" />
+            </button>
+            <div className="invisible absolute right-0 top-full z-50 mt-2 w-36 rounded-xl border border-border bg-background p-1 opacity-0 shadow-lg transition-all group-hover:visible group-hover:opacity-100">
+              {docsItems.map(item => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  target={item.external ? '_blank' : undefined}
+                  rel={item.external ? 'noopener noreferrer' : undefined}
+                  onClick={() => !item.external && setPendingHref(item.href)}
+                  className="block rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          </div>
         </nav>
 
         <div className="flex shrink-0 items-center justify-end gap-2 sm:gap-3">
