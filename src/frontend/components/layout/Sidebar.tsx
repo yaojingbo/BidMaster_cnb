@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   FileSearch,
+  FolderOpen,
   LayoutDashboard,
   LogOut,
   LogIn,
@@ -12,6 +13,7 @@ import {
   User,
   ScrollText,
   Settings,
+  SlidersHorizontal,
   Terminal,
   BookOpen,
   ChevronDown,
@@ -24,8 +26,8 @@ const navItems = [
   { href: '/', label: '首页', icon: LayoutDashboard },
   { href: '/workbench', label: '功能', icon: FileSearch },
   { href: '/cli', label: 'CLI', icon: Terminal },
-  { href: '/database', label: '文件管理', icon: Settings },
-  { href: '/settings', label: 'AI 设置', icon: Settings },
+  { href: '/database', label: '文件管理', icon: FolderOpen },
+  { href: '/settings', label: 'AI 设置', icon: SlidersHorizontal },
 ];
 
 const docsItems = [
