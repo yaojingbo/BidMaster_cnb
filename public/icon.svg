@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bid Master">
+  <rect width="512" height="512" rx="112" fill="#0f8f5f"/>
+  <path d="M128 142h150c58 0 98 34 98 84 0 29-14 54-38 69 31 13 50 43 50 80 0 55-42 95-104 95H128V142Zm72 130h68c23 0 38-13 38-33 0-19-15-31-38-31h-68v64Zm0 132h78c24 0 40-14 40-35s-16-35-40-35h-78v70Z" fill="#ffffff"/>
+  <path d="M360 96h56v56h-56V96Zm0 72h56v248h-56V168Z" fill="#d8f5e8" opacity="0.92"/>
+</svg>

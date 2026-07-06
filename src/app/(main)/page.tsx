@@ -143,7 +143,7 @@ export default function HomePage() {
       <footer className="mt-12 flex justify-center border-t border-border pt-6 text-sm text-muted-foreground">
         <a
           href="https://beian.mps.gov.cn/#/query/webSearch?code=33010202005876"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           target="_blank"
           className="inline-flex items-center gap-2 transition-colors hover:text-foreground"
         >

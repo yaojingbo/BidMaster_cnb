@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
-const siteUrl = "https://bid-master-v2.vercel.app";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://bidmaster.asia";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
