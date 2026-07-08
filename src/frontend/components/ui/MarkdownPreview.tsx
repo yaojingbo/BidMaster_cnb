@@ -29,7 +29,7 @@ const splitTableRow = (line: string) =>
 
 const isTableDivider = (line: string) => /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(line);
 
-const renderMarkdown = (text: string) => {
+export const renderMarkdown = (text: string) => {
   const lines = text.split('\n');
   const html: string[] = [];
   let listType: 'ul' | 'ol' | null = null;

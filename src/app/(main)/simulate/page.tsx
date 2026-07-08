@@ -27,6 +27,7 @@ import { useTaskStore } from '@/stores/task-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { listFiles } from '@/lib/data-api';
+import { downloadMarkdownPdf } from '@/lib/report-download';
 
 // 4 步流程定义
 const steps = [
@@ -161,6 +162,7 @@ export default function SimulatePage() {
   const [runningStep, setRunningStep] = useState<number | null>(null);
   const [streamContent, setStreamContent] = useState('');
   const [showMarkdownPreview, setShowMarkdownPreview] = useState(false);
+  const [isPdfExporting, setIsPdfExporting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [createTaskError, setCreateTaskError] = useState<string | null>(null);
@@ -592,6 +594,20 @@ export default function SimulatePage() {
     URL.revokeObjectURL(url);
     document.body.removeChild(a);
   };
+  const handleDownloadPdf = async () => {
+    if (!resultContent.trim() || isStreaming || isPdfExporting) return;
+    setIsPdfExporting(true);
+    try {
+      await downloadMarkdownPdf(resultContent, 'simulate_result.pdf', {
+        title: '模拟编制结果',
+        subtitle: resultTitle,
+      });
+    } catch {
+      alert('PDF 生成失败，请稍后重试或先下载 Markdown。');
+    } finally {
+      setIsPdfExporting(false);
+    }
+  };
 
   const canRunStep = (step: number) => {
     if (!task) return false;
@@ -940,6 +956,15 @@ export default function SimulatePage() {
                   >
                     <Download className="h-3.5 w-3.5" />
                     下载
+                  </button>
+                  <button
+                    onClick={handleDownloadPdf}
+                    disabled={isStreaming || isPdfExporting}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    title="下载 PDF"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {isPdfExporting ? '生成中' : 'PDF'}
                   </button>
                 </div>
               )}

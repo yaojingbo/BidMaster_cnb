@@ -40,6 +40,7 @@ import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { useFileStore } from '@/stores/file-store';
 import { useTaskStore } from '@/stores/task-store';
 import { useAuthStore } from '@/stores/auth-store';
+import { downloadMarkdownPdf } from '@/lib/report-download';
 
 interface AvailableModule {
   key: string;
@@ -158,6 +159,7 @@ export default function StatisticsPage() {
   } | null>(null);
   const [aiContent, setAiContent] = useState('');
   const [showMarkdownPreview, setShowMarkdownPreview] = useState(false);
+  const [isPdfExporting, setIsPdfExporting] = useState(false);
   const [aiStreaming, setAiStreaming] = useState(false);
   const [aiPercentage, setAiPercentage] = useState<number | null>(null);
   const [analysisTaskId, setAnalysisTaskId] = useState<string | null>(null);
@@ -625,6 +627,19 @@ export default function StatisticsPage() {
     a.click();
     URL.revokeObjectURL(url);
     document.body.removeChild(a);
+  };
+  const handleDownloadPdf = async () => {
+    if (!aiContent.trim() || aiStreaming || isPdfExporting) return;
+    setIsPdfExporting(true);
+    try {
+      await downloadMarkdownPdf(aiContent, 'comprehensive_analysis.pdf', {
+        title: '开标分析综合报告',
+      });
+    } catch {
+      alert('PDF 生成失败，请稍后重试或先下载 Markdown。');
+    } finally {
+      setIsPdfExporting(false);
+    }
   };
 
   const hasPreview = aiContent || aiStreaming || result;
@@ -1420,6 +1435,15 @@ export default function StatisticsPage() {
                   >
                     <Download className="h-3.5 w-3.5" />
                     下载
+                  </button>
+                  <button
+                    onClick={handleDownloadPdf}
+                    disabled={aiStreaming || isPdfExporting}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    title="下载 PDF"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {isPdfExporting ? '生成中' : 'PDF'}
                   </button>
                 </div>
               )}
