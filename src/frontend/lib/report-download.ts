@@ -93,6 +93,62 @@ const createHiddenContainer = (html: string) => {
   return container;
 };
 
+const findPageCutY = (canvas: HTMLCanvasElement, targetY: number, minY: number) => {
+  const context = canvas.getContext('2d');
+  if (!context) return targetY;
+
+  const searchRadius = Math.min(120, Math.floor((targetY - minY) / 2));
+  const startY = Math.max(minY + 80, targetY - searchRadius);
+  const endY = Math.min(canvas.height - 1, targetY + searchRadius);
+  const sampleStep = 12;
+
+  let bestY = targetY;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let y = startY; y <= endY; y += 2) {
+    const row = context.getImageData(0, y, canvas.width, 1).data;
+    let nonWhitePixels = 0;
+
+    for (let x = 0; x < canvas.width; x += sampleStep) {
+      const index = x * 4;
+      const r = row[index];
+      const g = row[index + 1];
+      const b = row[index + 2];
+      const alpha = row[index + 3];
+      if (alpha > 0 && (r < 245 || g < 245 || b < 245)) {
+        nonWhitePixels += 1;
+      }
+    }
+
+    const distancePenalty = Math.abs(targetY - y) * 0.02;
+    const score = nonWhitePixels + distancePenalty;
+    if (score < bestScore) {
+      bestScore = score;
+      bestY = y;
+    }
+
+    if (nonWhitePixels === 0 && y <= targetY) {
+      bestY = y;
+    }
+  }
+
+  return Math.max(bestY, minY + 80);
+};
+
+const createPageCanvas = (sourceCanvas: HTMLCanvasElement, startY: number, height: number) => {
+  const pageCanvas = document.createElement('canvas');
+  pageCanvas.width = sourceCanvas.width;
+  pageCanvas.height = height;
+  const context = pageCanvas.getContext('2d');
+  if (!context) {
+    throw new Error('PDF 页面生成失败');
+  }
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+  context.drawImage(sourceCanvas, 0, startY, sourceCanvas.width, height, 0, 0, sourceCanvas.width, height);
+  return pageCanvas;
+};
+
 export async function downloadMarkdownPdf(
   content: string,
   filename: string,
@@ -116,20 +172,33 @@ export async function downloadMarkdownPdf(
     const pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 10;
     const imageWidth = pageWidth - margin * 2;
-    const imageHeight = (canvas.height * imageWidth) / canvas.width;
-    const imageData = canvas.toDataURL('image/png');
+    const printableHeight = pageHeight - margin * 2;
+    const pageCanvasHeight = Math.floor((printableHeight * canvas.width) / imageWidth);
 
-    let remainingHeight = imageHeight;
-    let position = margin;
+    let sourceY = 0;
+    let pageIndex = 0;
 
-    pdf.addImage(imageData, 'PNG', margin, position, imageWidth, imageHeight);
-    remainingHeight -= pageHeight - margin * 2;
+    while (sourceY < canvas.height) {
+      const remainingCanvasHeight = canvas.height - sourceY;
+      let sliceHeight = Math.min(pageCanvasHeight, remainingCanvasHeight);
 
-    while (remainingHeight > 0) {
-      position = remainingHeight - imageHeight + margin;
-      pdf.addPage();
-      pdf.addImage(imageData, 'PNG', margin, position, imageWidth, imageHeight);
-      remainingHeight -= pageHeight - margin * 2;
+      if (remainingCanvasHeight > pageCanvasHeight) {
+        const targetY = sourceY + pageCanvasHeight;
+        const cutY = findPageCutY(canvas, targetY, sourceY);
+        sliceHeight = cutY - sourceY;
+      }
+
+      const pageCanvas = createPageCanvas(canvas, sourceY, sliceHeight);
+      const imageData = pageCanvas.toDataURL('image/png');
+      const imageHeight = (sliceHeight * imageWidth) / canvas.width;
+
+      if (pageIndex > 0) {
+        pdf.addPage();
+      }
+      pdf.addImage(imageData, 'PNG', margin, margin, imageWidth, imageHeight);
+
+      sourceY += sliceHeight;
+      pageIndex += 1;
     }
 
     pdf.save(filename);
