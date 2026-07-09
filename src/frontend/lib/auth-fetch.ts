@@ -9,6 +9,10 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useLogStore } from "@/stores/log-store";
 import { resolveApiUrl } from "@/lib/api-base";
 
+interface AuthFetchOptions extends RequestInit {
+  suppressErrorLog?: boolean;
+}
+
 const AUTH_DISABLED = process.env.NEXT_PUBLIC_AUTH_DISABLED === "true";
 
 let refreshPromise: Promise<string | null> | null = null;
@@ -33,7 +37,7 @@ function redirectToLogin() {
   window.location.href = `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`;
 }
 
-export async function authFetch(url: string, options?: RequestInit): Promise<Response> {
+export async function authFetch(url: string, options?: AuthFetchOptions): Promise<Response> {
   // 若 token 尚未就绪，等待 initAuth 完成
   const { accessToken: initialToken } = useAuthStore.getState();
   if (!AUTH_DISABLED && !initialToken) {
@@ -63,7 +67,7 @@ export async function authFetch(url: string, options?: RequestInit): Promise<Res
     throw err;
   }
 
-  if (response.status >= 400 && response.status !== 401) {
+  if (response.status >= 400 && response.status !== 401 && !options?.suppressErrorLog) {
     const body = await response.clone().text().catch(() => "");
     useLogStore.getState().addLog({
       level: "error",
@@ -106,7 +110,7 @@ export async function authFetch(url: string, options?: RequestInit): Promise<Res
 /**
  * SSE 流式请求，使用与 authFetch 相同的代理路径和认证逻辑。
  */
-export async function authFetchSSE(url: string, options?: RequestInit): Promise<Response> {
+export async function authFetchSSE(url: string, options?: AuthFetchOptions): Promise<Response> {
   // 若 token 尚未就绪，等待 initAuth 完成
   const { accessToken: initialToken } = useAuthStore.getState();
   if (!AUTH_DISABLED && !initialToken) {
@@ -136,7 +140,7 @@ export async function authFetchSSE(url: string, options?: RequestInit): Promise<
     throw err;
   }
 
-  if (response.status >= 400 && response.status !== 401) {
+  if (response.status >= 400 && response.status !== 401 && !options?.suppressErrorLog) {
     const body = await response.clone().text().catch(() => "");
     useLogStore.getState().addLog({
       level: "error",

@@ -242,7 +242,7 @@ export default function SimulatePage() {
     }
 
     // 验证任务是否属于当前用户（避免跨用户残留数据）
-    authFetch(`/api/simulate/${saved.task.taskId}`)
+    authFetch(`/api/simulate/${saved.task.taskId}`, { suppressErrorLog: true })
       .then(res => res.json())
       .then(data => {
         if (!data.success || !data.data) {

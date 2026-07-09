@@ -9,6 +9,7 @@ const DIRECT_API_PREFIXES = [
   "/api/statistics/",
   "/api/data/files/batch-download",
   "/api/data/extracts/",
+  "/api/data/project-sources",
 ];
 
 export function shouldUseDirectBackend(url: string): boolean {
