@@ -634,6 +634,12 @@ export default function StatisticsPage() {
     try {
       await downloadMarkdownPdf(aiContent, 'comprehensive_analysis.pdf', {
         title: '开标分析综合报告',
+        sourceType: 'opening_analysis',
+        metadata: {
+          project_name: result?.meta?.project_name,
+          bid_number: result?.meta?.bid_number,
+          bidder_count: result?.bidder_count,
+        },
       });
     } catch {
       alert('PDF 生成失败，请稍后重试或先下载 Markdown。');

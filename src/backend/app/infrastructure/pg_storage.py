@@ -65,6 +65,20 @@ def _serialize_rows(rows: list[dict]) -> list[dict]:
     return [_serialize_row(r) for r in rows]
 
 
+def _serialize_project_source(row: Optional[dict]) -> Optional[dict]:
+    result = _serialize_row(row)
+    if result and isinstance(result.get("tags"), str):
+        try:
+            result["tags"] = json.loads(result["tags"])
+        except json.JSONDecodeError:
+            result["tags"] = []
+    return result
+
+
+def _serialize_project_sources(rows: list[dict]) -> list[dict]:
+    return [item for item in (_serialize_project_source(row) for row in rows) if item is not None]
+
+
 # ──────────────────────────────────────────────
 # Stats
 # ──────────────────────────────────────────────
@@ -476,6 +490,131 @@ async def delete_extract(result_id: str, user_id: Optional[str] = None) -> bool:
 
 
 # ──────────────────────────────────────────────
+# Project Sources
+# ──────────────────────────────────────────────
+
+async def add_project_source(record: dict, user_id: str) -> dict:
+    if "id" not in record:
+        record["id"] = _new_id()
+    now = _now()
+    record["user_id"] = user_id
+    record.setdefault("created_at", now)
+    record.setdefault("updated_at", now)
+    db = await get_database()
+    await db.execute(
+        """INSERT INTO project_sources
+           (id, user_id, name, url, category, region, tags, note, is_favorite, status, last_visited_at, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           ON CONFLICT (id) DO NOTHING""",
+        record["id"], user_id, record.get("name", ""), record.get("url", ""),
+        record.get("category", "other"), record.get("region", ""),
+        json.dumps(record.get("tags", [])), record.get("note", ""),
+        record.get("is_favorite", False), record.get("status", "active"),
+        _to_dt(record.get("last_visited_at")), _to_dt(record["created_at"]), _to_dt(record["updated_at"]),
+    )
+    return _serialize_project_source(await db.fetch_one("SELECT * FROM project_sources WHERE id = $1 AND user_id = $2", record["id"], user_id))
+
+
+async def list_project_sources(
+    page: int = 1,
+    page_size: int = 50,
+    q: Optional[str] = None,
+    category: Optional[str] = None,
+    region: Optional[str] = None,
+    is_favorite: Optional[bool] = None,
+    status: Optional[str] = None,
+    sort: str = "default",
+    user_id: Optional[str] = None,
+) -> dict:
+    db = await get_database()
+    clauses = ["user_id = $1"]
+    args = [user_id]
+    if q:
+        args.append(f"%{q}%")
+        idx = len(args)
+        clauses.append(f"(name ILIKE ${idx} OR url ILIKE ${idx} OR region ILIKE ${idx} OR note ILIKE ${idx})")
+    if category:
+        args.append(category)
+        clauses.append(f"category = ${len(args)}")
+    if region:
+        args.append(region)
+        clauses.append(f"region = ${len(args)}")
+    if is_favorite is not None:
+        args.append(is_favorite)
+        clauses.append(f"is_favorite = ${len(args)}")
+    if status:
+        args.append(status)
+        clauses.append(f"status = ${len(args)}")
+    where_clause = "WHERE " + " AND ".join(clauses)
+    sort_sql = {
+        "default": "is_favorite DESC, updated_at DESC",
+        "last_visited": "last_visited_at DESC NULLS LAST, updated_at DESC",
+        "updated": "updated_at DESC",
+        "created": "created_at DESC",
+        "name": "name ASC, updated_at DESC",
+        "category": "category ASC, is_favorite DESC, updated_at DESC",
+        "region": "region ASC NULLS LAST, is_favorite DESC, updated_at DESC",
+    }.get(sort, "is_favorite DESC, updated_at DESC")
+    total_row = await db.fetch_one(f"SELECT COUNT(*) as cnt FROM project_sources {where_clause}", *args)
+    total = total_row["cnt"] if total_row else 0
+    offset = (page - 1) * page_size
+    query_args = args + [page_size, offset]
+    limit_idx = len(args) + 1
+    rows = await db.fetch_all(
+        f"""SELECT * FROM project_sources {where_clause}
+            ORDER BY {sort_sql}
+            LIMIT ${limit_idx} OFFSET ${limit_idx + 1}""",
+        *query_args,
+    )
+    return {"total": total, "page": page, "page_size": page_size, "items": _serialize_project_sources(rows)}
+
+
+async def get_project_source(source_id: str, user_id: str) -> Optional[dict]:
+    db = await get_database()
+    row = await db.fetch_one("SELECT * FROM project_sources WHERE id = $1 AND user_id = $2", source_id, user_id)
+    return _serialize_project_source(row)
+
+
+async def update_project_source(source_id: str, updates: dict, user_id: str) -> Optional[dict]:
+    if not updates:
+        return await get_project_source(source_id, user_id)
+    db = await get_database()
+    allowed_fields = {"name", "url", "category", "region", "tags", "note", "is_favorite", "status", "last_visited_at"}
+    sets = []
+    args = []
+    for key, value in updates.items():
+        if key not in allowed_fields:
+            continue
+        if key == "last_visited_at":
+            args.append(_to_dt(value))
+        else:
+            args.append(json.dumps(value) if isinstance(value, (dict, list)) else value)
+        sets.append(f"{key} = ${len(args)}")
+    if not sets:
+        return await get_project_source(source_id, user_id)
+    args.append(_to_dt(_now()))
+    sets.append(f"updated_at = ${len(args)}")
+    args.extend([source_id, user_id])
+    result = await db.execute(
+        f"UPDATE project_sources SET {', '.join(sets)} WHERE id = ${len(args) - 1} AND user_id = ${len(args)}",
+        *args,
+    )
+    if "UPDATE 1" not in result:
+        return None
+    return await get_project_source(source_id, user_id)
+
+
+async def delete_project_source(source_id: str, user_id: str) -> bool:
+    db = await get_database()
+    result = await db.execute("DELETE FROM project_sources WHERE id = $1 AND user_id = $2", source_id, user_id)
+    return "DELETE 1" in result
+
+
+async def visit_project_source(source_id: str, user_id: str) -> Optional[dict]:
+    return await update_project_source(source_id, {"last_visited_at": _now()}, user_id)
+
+
+# ──────────────────────────────────────────────
 # Users
 # ──────────────────────────────────────────────
 
@@ -652,6 +791,8 @@ for _name in (
     "list_simulates", "get_simulate", "delete_simulate", "update_simulate",
     "list_openings", "get_opening", "delete_opening", "update_opening",
     "list_extracts", "get_extract", "delete_extract",
+    "add_project_source", "list_project_sources", "get_project_source",
+    "update_project_source", "delete_project_source", "visit_project_source",
     "add_simulate", "add_opening", "add_extract",
     "add_user", "get_user_by_username", "get_user_by_email", "get_user_by_id",
     "update_user_password", "save_api_key", "get_api_key", "delete_api_key",

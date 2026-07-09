@@ -39,6 +39,9 @@ import {
   deleteOpening as apiDeleteOpening,
   listExtracts,
   exportExtractJson,
+  exportExtractPdf,
+  exportSimulatePdf,
+  exportOpeningPdf,
   deleteExtract as apiDeleteExtract,
 } from '@/lib/data-api';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
@@ -411,6 +414,32 @@ export default function DatabasePage() {
       downloadBlob(blob, `extract_${result.id}_${result.template_type}.json`);
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : '导出 JSON 失败');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleExportResultPdf = async (record: DetailRecord) => {
+    if (!requireAuth() || record.type === 'files') return;
+    const id =
+      record.type === 'extracts'
+        ? record.record.id
+        : record.type === 'simulates'
+          ? record.record.task_id
+          : record.record.id;
+    setDownloadingId(id);
+    setDownloadError(null);
+    try {
+      const blob =
+        record.type === 'extracts'
+          ? await exportExtractPdf(record.record.id)
+          : record.type === 'simulates'
+            ? await exportSimulatePdf(record.record.task_id)
+            : await exportOpeningPdf(record.record.id);
+      const title = getDetailTitle(record).replace(/\.pdf$/i, '');
+      downloadBlob(blob, `${title}.pdf`);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : '导出 PDF 失败');
     } finally {
       setDownloadingId(null);
     }
@@ -824,6 +853,14 @@ export default function DatabasePage() {
               JSON
             </button>
             <button
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
+              disabled={downloadingId === result.id}
+              onClick={() => handleExportResultPdf({ type: 'extracts', record: result })}
+            >
+              <Download className="h-3.5 w-3.5" />
+              PDF
+            </button>
+            <button
               className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
               onClick={() =>
                 downloadMarkdown(`extract_${result.id}_${result.template_type}.md`, result.content)
@@ -880,13 +917,23 @@ export default function DatabasePage() {
           </div>
           <div className="flex items-center justify-between gap-3">
             {renderCardActions({ type: 'simulates', record: task })}
-            <button
-              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-              onClick={() => downloadMarkdown(`simulate_${task.task_id}.md`, markdown)}
-            >
-              <Download className="h-3.5 w-3.5" />
-              下载
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
+                disabled={downloadingId === task.task_id}
+                onClick={() => handleExportResultPdf({ type: 'simulates', record: task })}
+              >
+                <Download className="h-3.5 w-3.5" />
+                PDF
+              </button>
+              <button
+                className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                onClick={() => downloadMarkdown(`simulate_${task.task_id}.md`, markdown)}
+              >
+                <Download className="h-3.5 w-3.5" />
+                下载
+              </button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -931,13 +978,23 @@ export default function DatabasePage() {
           </div>
           <div className="flex items-center justify-between gap-3">
             {renderCardActions({ type: 'openings', record: result })}
-            <button
-              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-              onClick={() => downloadMarkdown(`opening_${result.id}.md`, markdown)}
-            >
-              <Download className="h-3.5 w-3.5" />
-              下载
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
+                disabled={downloadingId === result.id}
+                onClick={() => handleExportResultPdf({ type: 'openings', record: result })}
+              >
+                <Download className="h-3.5 w-3.5" />
+                PDF
+              </button>
+              <button
+                className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                onClick={() => downloadMarkdown(`opening_${result.id}.md`, markdown)}
+              >
+                <Download className="h-3.5 w-3.5" />
+                下载
+              </button>
+            </div>
           </div>
         </CardContent>
       </Card>

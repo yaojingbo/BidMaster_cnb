@@ -40,21 +40,24 @@ class Database:
         self._pool: asyncpg.Pool | None = None
         self._connect_lock = asyncio.Lock()
 
+    async def _create_pool(self) -> asyncpg.Pool:
+        kwargs: dict = {"min_size": 0, "max_size": 10, "max_inactive_connection_lifetime": 120}
+        if self._needs_ssl:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            kwargs["ssl"] = ctx
+        if "-pooler" in self.database_url:
+            kwargs["statement_cache_size"] = 0
+        return await asyncpg.create_pool(self.database_url, **kwargs)
+
     async def connect(self) -> None:
         if self._pool:
             return
         async with self._connect_lock:
             if self._pool:
                 return
-            kwargs: dict = {"min_size": 0, "max_size": 10, "max_inactive_connection_lifetime": 120}
-            if self._needs_ssl:
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                kwargs["ssl"] = ctx
-            if "-pooler" in self.database_url:
-                kwargs["statement_cache_size"] = 0
-            self._pool = await asyncpg.create_pool(self.database_url, **kwargs)
+            self._pool = await self._create_pool()
             print("Database pool connected")
 
     async def disconnect(self) -> None:
@@ -79,30 +82,30 @@ class Database:
         """执行数据库操作，连接断开时重连重试。"""
         for attempt in range(retries + 1):
             try:
-                return await fn(*args)
-            except (ConnectionError, asyncpg.PostgresConnectionError, OSError):
-                if attempt < retries:
-                    await self._reset_pool()
-                else:
+                pool = self.pool
+                return await fn(pool, *args)
+            except (ConnectionError, asyncpg.PostgresConnectionError, asyncpg.InterfaceError, OSError):
+                if attempt >= retries:
                     raise
+                await self._reset_pool()
 
     async def fetch_one(self, query: str, *args) -> dict | None:
-        async def _do():
-            async with self.pool.acquire() as conn:
+        async def _do(pool: asyncpg.Pool):
+            async with pool.acquire() as conn:
                 row = await conn.fetchrow(query, *args)
                 return dict(row) if row else None
         return await self._retry(_do)
 
     async def fetch_all(self, query: str, *args) -> list[dict]:
-        async def _do():
-            async with self.pool.acquire() as conn:
+        async def _do(pool: asyncpg.Pool):
+            async with pool.acquire() as conn:
                 rows = await conn.fetch(query, *args)
                 return [dict(r) for r in rows]
         return await self._retry(_do)
 
     async def execute(self, query: str, *args) -> str:
-        async def _do():
-            async with self.pool.acquire() as conn:
+        async def _do(pool: asyncpg.Pool):
+            async with pool.acquire() as conn:
                 return await conn.execute(query, *args)
         return await self._retry(_do)
 

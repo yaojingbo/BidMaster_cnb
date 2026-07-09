@@ -68,6 +68,44 @@ export interface ExtractResultRecord {
   created_at: string | null;
 }
 
+export interface ProjectSource {
+  id: string;
+  user_id?: string;
+  name: string;
+  url: string;
+  category: string;
+  region: string;
+  tags: string[];
+  note: string;
+  is_favorite: boolean;
+  status: string;
+  last_visited_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectSourcePayload {
+  name: string;
+  url: string;
+  category?: string;
+  region?: string;
+  tags?: string[];
+  note?: string;
+  is_favorite?: boolean;
+  status?: string;
+}
+
+export interface ProjectSourceListParams {
+  page?: number;
+  page_size?: number;
+  q?: string;
+  category?: string;
+  region?: string;
+  is_favorite?: boolean;
+  status?: string;
+  sort?: 'default' | 'last_visited' | 'updated' | 'created' | 'name' | 'category' | 'region';
+}
+
 interface PaginatedResult<T> {
   total: number;
   page: number;
@@ -91,6 +129,56 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 export async function getStats(): Promise<DataStats> {
   return apiFetch<DataStats>("/stats");
+}
+
+// --- 项目查询 ---
+
+export async function listProjectSources(
+  params: ProjectSourceListParams = {},
+  options?: RequestInit
+): Promise<PaginatedResult<ProjectSource> & { items: ProjectSource[] }> {
+  const query = new URLSearchParams();
+  if (params.page) query.set("page", String(params.page));
+  if (params.page_size) query.set("page_size", String(params.page_size));
+  if (params.q) query.set("q", params.q);
+  if (params.category) query.set("category", params.category);
+  if (params.region) query.set("region", params.region);
+  if (params.is_favorite !== undefined) query.set("is_favorite", String(params.is_favorite));
+  if (params.status) query.set("status", params.status);
+  if (params.sort) query.set("sort", params.sort);
+  const qs = query.toString();
+  return apiFetch(`/project-sources${qs ? `?${qs}` : ""}`, options);
+}
+
+export async function createProjectSource(payload: ProjectSourcePayload): Promise<ProjectSource> {
+  return apiFetch("/project-sources", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getProjectSource(sourceId: string): Promise<ProjectSource> {
+  return apiFetch(`/project-sources/${sourceId}`);
+}
+
+export async function updateProjectSource(
+  sourceId: string,
+  payload: Partial<ProjectSourcePayload>
+): Promise<ProjectSource> {
+  return apiFetch(`/project-sources/${sourceId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteProjectSource(sourceId: string): Promise<{ success: boolean }> {
+  return apiFetch(`/project-sources/${sourceId}`, { method: "DELETE" });
+}
+
+export async function visitProjectSource(sourceId: string): Promise<ProjectSource> {
+  return apiFetch(`/project-sources/${sourceId}/visit`, { method: "POST" });
 }
 
 // --- 文件管理 ---
@@ -118,6 +206,42 @@ export async function deleteFile(fileId: string): Promise<{ success: boolean }> 
 export async function downloadFile(fileId: string): Promise<Blob> {
   const res = await authFetch(`/api/data/files/${fileId}/download`);
   if (!res.ok) throw new Error(`下载失败: HTTP ${res.status}`);
+  return res.blob();
+}
+
+export async function exportMarkdownPdf(payload: {
+  title?: string;
+  source_type?: string;
+  markdown: string;
+  metadata?: Record<string, unknown>;
+}): Promise<Blob> {
+  const res = await authFetch(`/api/data/exports/markdown/pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `导出 PDF 失败: HTTP ${res.status}`);
+  }
+  return res.blob();
+}
+
+export async function exportExtractPdf(resultId: string): Promise<Blob> {
+  const res = await authFetch(`/api/data/extracts/${resultId}/export-pdf`);
+  if (!res.ok) throw new Error(`导出 PDF 失败: HTTP ${res.status}`);
+  return res.blob();
+}
+
+export async function exportSimulatePdf(taskId: string): Promise<Blob> {
+  const res = await authFetch(`/api/data/simulates/${taskId}/export-pdf`);
+  if (!res.ok) throw new Error(`导出 PDF 失败: HTTP ${res.status}`);
+  return res.blob();
+}
+
+export async function exportOpeningPdf(taskId: string): Promise<Blob> {
+  const res = await authFetch(`/api/data/openings/${taskId}/export-pdf`);
+  if (!res.ok) throw new Error(`导出 PDF 失败: HTTP ${res.status}`);
   return res.blob();
 }
 

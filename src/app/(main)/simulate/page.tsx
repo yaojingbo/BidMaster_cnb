@@ -601,6 +601,7 @@ export default function SimulatePage() {
       await downloadMarkdownPdf(resultContent, 'simulate_result.pdf', {
         title: '模拟编制结果',
         subtitle: resultTitle,
+        sourceType: 'simulate_document',
       });
     } catch {
       alert('PDF 生成失败，请稍后重试或先下载 Markdown。');

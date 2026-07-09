@@ -7,6 +7,7 @@ import {
   Database,
   FileSearch,
   FileText,
+  Globe2,
   Home,
   LogIn,
   LogOut,
@@ -23,6 +24,10 @@ type WorkbenchLayoutProps = {
 };
 
 const workspaceNav = [
+  {
+    title: '项目机会查询',
+    items: [{ href: '/project-query', label: '项目查询', icon: Globe2 }],
+  },
   {
     title: '招标文件处理',
     items: [

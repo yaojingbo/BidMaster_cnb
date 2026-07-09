@@ -207,6 +207,28 @@ CREATE TABLE IF NOT EXISTS extracts (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS project_sources (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(200) NOT NULL,
+    url TEXT NOT NULL,
+    category VARCHAR(50) NOT NULL DEFAULT 'other',
+    region VARCHAR(100) DEFAULT '',
+    tags JSONB DEFAULT '[]',
+    note TEXT DEFAULT '',
+    is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    last_visited_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_sources_user ON project_sources(user_id);
+CREATE INDEX IF NOT EXISTS idx_project_sources_user_category ON project_sources(user_id, category);
+CREATE INDEX IF NOT EXISTS idx_project_sources_user_region ON project_sources(user_id, region);
+CREATE INDEX IF NOT EXISTS idx_project_sources_user_favorite ON project_sources(user_id, is_favorite);
+CREATE INDEX IF NOT EXISTS idx_project_sources_user_updated ON project_sources(user_id, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS api_keys (
     user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
     provider VARCHAR(50) NOT NULL,
@@ -241,5 +263,4 @@ CREATE TABLE IF NOT EXISTS cli_device_codes (
 
 async def init_schema(db) -> None:
     """Execute schema creation on the given Database instance."""
-    async with db.pool.acquire() as conn:
-        await conn.execute(SCHEMA_SQL)
+    await db.execute(SCHEMA_SQL)

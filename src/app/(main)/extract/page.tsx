@@ -343,7 +343,10 @@ export default function ExtractPage() {
     if (!streamRawText.trim() || !isDone || isPdfExporting) return;
     setIsPdfExporting(true);
     try {
-      await downloadMarkdownPdf(streamRawText, 'extract_result.pdf', { title: '要素提取结果' });
+      await downloadMarkdownPdf(streamRawText, 'extract_result.pdf', {
+        title: '要素提取结果',
+        sourceType: 'extract_result',
+      });
     } catch {
       alert('PDF 生成失败，请稍后重试或先下载 Markdown。');
     } finally {
