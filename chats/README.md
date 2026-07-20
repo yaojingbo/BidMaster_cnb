@@ -4,9 +4,6 @@
 
 ## 成员
 
-- zhiping
-- zhongwei
-- jianghao
 - yaojingbo
 
 （其他成员可按需添加）

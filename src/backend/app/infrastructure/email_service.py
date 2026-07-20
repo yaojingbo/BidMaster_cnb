@@ -48,7 +48,7 @@ async def send_reset_link(email: str, token: str) -> tuple[bool, str]:
 
 
 def _is_production() -> bool:
-    return bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RENDER") or os.getenv("FLY_APP_NAME"))
+    return os.getenv("BID_MASTER_ENV", "development").lower() == "production"
 
 
 async def _send_email(to: str, subject: str, text: str, settings) -> tuple[bool, str]:

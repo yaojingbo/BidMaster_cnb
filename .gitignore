@@ -2,7 +2,7 @@
 .claude/
 
 # ===== Run logs =====
-error_log/
+/error_log/
 
 # ===== Bun & Node.js =====
 node_modules/
@@ -46,11 +46,9 @@ venv/
 .venv*/
 venv*/
 
-# ===== Claude Code =====
-.claude/
-
 # ===== Uploads =====
 src/backend/uploads/
+/uploads/
 
 # ===== Test artifacts =====
 test-results/
@@ -60,12 +58,8 @@ playwright-report/
 # ===== TypeScript =====
 tsconfig.tsbuildinfo
 
-# ===== Others =====
-resource
+# ===== Local-only project data =====
+resource/
 notes/
-.env
-.vercel
-.env*.local
-data/
-
-task/
+/data/
+/task/

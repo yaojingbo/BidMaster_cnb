@@ -5,10 +5,7 @@
  * 再由 Next.js 自己设置 httpOnly cookie 给浏览器。
  */
 import { NextRequest, NextResponse } from "next/server";
-
-const BACKEND = (process.env.BACKEND_URL || (process.env.NODE_ENV === "production"
-  ? "https://bidmasterv2-production.up.railway.app"
-  : "http://localhost:8000")).replace(/\/$/, "");
+import { getBackendUrl } from "@/lib/server/backend-url";
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const REFRESH_COOKIE_MAX_AGE = 7 * 86400; // 7 天
@@ -44,7 +41,8 @@ async function proxyAuthRequest(
   segments: string[],
 ) {
   const action = segments.join("/");
-  const url = `${BACKEND}/api/auth/${action}`;
+  const backend = getBackendUrl();
+  const url = `${backend}/api/auth/${action}`;
 
   const fwdHeaders: Record<string, string> = {};
 
@@ -114,7 +112,7 @@ async function proxyAuthRequest(
     return res;
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知错误";
-    console.error("[auth-proxy] 后端请求失败", { action, backend: BACKEND, message });
+    console.error("[auth-proxy] 后端请求失败", { action, backend, message });
     return NextResponse.json({ detail: `后端服务不可用: ${message}` }, { status: 502 });
   }
 }

@@ -23,9 +23,9 @@
 - 分层设计确保关注点分离，便于开发和维护
 
 **Deployment:**
-- 前端：Vercel（Next.js 15）
-- 后端：Railway（FastAPI + Python 3.12+）
-- 数据库：Neon PostgreSQL（Serverless）
+- 主生产：腾讯云服务器（Next.js 15 + FastAPI，由 systemd 管理）
+- 数据库：PostgreSQL
+- 主代码仓库：CNB
 - LLM 封装：LiteLLM
 
 ### 1.2 System Diagram
@@ -449,7 +449,7 @@ backend/
 
 | Layer | Requirement | Implementation |
 |-------|-------------|----------------|
-| Transport | HTTPS only | Vercel/Railway 默认 |
+| Transport | HTTPS only | 腾讯云 Nginx 终止 TLS，冷备用由平台 HTTPS 提供 |
 | API | Rate limiting | slowapi 限流 |
 | API | CORS | FastAPI CORS middleware |
 | Input | File type validation | python-magicnum 检测 |
@@ -482,7 +482,7 @@ backend/
 - 内置 SSR/SSG 支持
 - API Routes 可简化前后端通信
 - shadcn/ui + Tailwind CSS 提供优质组件
-- Vercel 部署无缝集成
+- Next.js 提供 SSR、SSG 和 API Routes，生产环境统一部署在腾讯云 systemd。
 
 **Consequences:**
 - 前端开发者需要熟悉 Next.js 特定概念（App Router、Server Components）
@@ -535,17 +535,18 @@ backend/
 **Status:** Accepted
 
 **Context:**
-需要生产级数据库，支持无服务器部署。
+需要生产级数据库，支持 PostgreSQL 和持久化部署。
 
-**Decision:**
-选择 Neon PostgreSQL (Serverless)，原因：
-- Serverless 模式，按需扩展
-- 与 Vercel/Railway 集成良好
+**历史决策说明：**
+当前主生产统一使用 PostgreSQL，具体运行位置和备份策略以腾讯云部署文档为准。
+
+**保留原因：**
 - PostgreSQL 功能完整
+- 与 SQLAlchemy 兼容
+- 便于在腾讯云生产环境中统一维护
 
 **Consequences:**
-- Serverless 冷启动可能较慢
-- 需要处理连接池（Neon 已优化）
+- 需要根据实际 PostgreSQL 运行环境配置连接池
 
 ---
 
@@ -598,7 +599,7 @@ User → Frontend (Drag/Drop) → API Route → FastAPI
                                       ↓
                               Fernet.encrypt()
                                       ↓
-                              Local/Vercel Blob Storage
+                              Persistent File Storage
                                       ↓
                               PostgreSQL (metadata)
                                       ↓
@@ -631,10 +632,10 @@ User → Frontend (Click Extract) → API Route → FastAPI
 
 | Component | Platform | Reasoning |
 |-----------|----------|----------|
-| Frontend | Vercel | Next.js 原生支持，冷启动快 |
-| Backend | Railway | Python 支持，部署简单 |
-| Database | Neon | PostgreSQL Serverless，与 Railway 集成 |
-| File Storage | Vercel Blob / Local | 开发环境本地，生产环境 Vercel Blob |
+| 主生产 | 腾讯云服务器 + systemd | 统一管理 Next.js 与 FastAPI，使用正式域名承载流量 |
+| Database | PostgreSQL | 保存用户、项目和分析数据 |
+| File Storage | 腾讯云服务器持久目录 | 上传文件与 OCR 数据不依赖代码仓库恢复 |
+| Code Repository | CNB | CNB 为唯一代码仓库 |
 
 ### 8.2 Environment Variables
 
@@ -656,9 +657,10 @@ FERNET_KEY=your-32-byte-base64-key
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-**Frontend (.env.local):**
+**Next.js 服务端运行环境：**
 ```bash
-NEXT_PUBLIC_API_URL=https://api.bidmaster.com
+BACKEND_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_SITE_URL=https://bidmaster.asia
 ```
 
 ---

@@ -4,17 +4,15 @@
  * 确保 text/event-stream 响应逐块流式返回给浏览器。
  */
 import { NextRequest } from "next/server";
+import { getBackendUrl } from "@/lib/server/backend-url";
 
-// LLM 提取可能需要 1-3 分钟，Vercel 默认超时 10s(Hobby)/60s(Pro) 远不够
+// LLM 提取可能需要 1-3 分钟，代理超时需覆盖完整处理过程
 export const maxDuration = 300;
-
-const BACKEND = (process.env.BACKEND_URL || (process.env.NODE_ENV === "production"
-  ? "https://bidmasterv2-production.up.railway.app"
-  : "http://localhost:8000")).replace(/\/$/, "");
 
 async function proxyRequest(request: NextRequest, segments: string[]) {
   const path = segments.join("/");
-  const url = `${BACKEND}/api/extract/${path}`;
+  const backend = getBackendUrl();
+  const url = `${backend}/api/extract/${path}`;
   const method = request.method;
 
   const headers: Record<string, string> = {};

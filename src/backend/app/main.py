@@ -56,8 +56,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ── CORS ──────────────────────────────────────────────────────
 # 注意：allow_origins=["*"] + allow_credentials=True 违反 CORS 规范，
 # 浏览器会拒绝（Access-Control-Allow-Origin 不能是 * 当 credentials 为 true）。
-# 生产环境通过 Vercel rewrite 代理请求（同源），CORS 不生效；
-# 此配置仅为前端直连后端（本地开发/调试）时使用。
+# 此配置用于本地开发及前后端分离部署时的跨域访问。
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origin_list,

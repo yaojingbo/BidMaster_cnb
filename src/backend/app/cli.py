@@ -27,7 +27,7 @@ from app.services.prompt_builder import get_prompt_builder
 
 APP_NAME = "Bid Master CLI"
 MAX_CHARS = 200000
-DEFAULT_API_URL = "https://bid-master-v2.vercel.app"
+DEFAULT_API_URL = "https://bidmaster.asia"
 CREDENTIALS_PATH = Path.home() / ".bid-master" / "credentials.json"
 SUPPORTED_FILE_SUFFIXES = {".pdf", ".doc", ".docx", ".md", ".txt", ".xlsx", ".xls", ".csv"}
 QUOTE_FILE_SUFFIXES = {".xlsx", ".xls", ".csv"}

@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
 
     # CORS
-    cors_origins: str = "http://localhost:3000,http://localhost:8000,https://bid-master-web.vercel.app,https://bid-master-v2.vercel.app"
+    cors_origins: str = "http://localhost:3000,http://localhost:8000"
 
     # OCR
     ocr_save_evidence: bool = True

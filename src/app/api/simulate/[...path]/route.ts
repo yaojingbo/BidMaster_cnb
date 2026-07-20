@@ -3,17 +3,15 @@
  * 与 extract 代理同理，确保 SSE 流式响应不被 Next.js rewrite 缓冲。
  */
 import { NextRequest } from "next/server";
+import { getBackendUrl } from "@/lib/server/backend-url";
 
 // 模拟编制多步骤 LLM 调用耗时较长
 export const maxDuration = 300;
 
-const BACKEND = (process.env.BACKEND_URL || (process.env.NODE_ENV === "production"
-  ? "https://bidmasterv2-production.up.railway.app"
-  : "http://localhost:8000")).replace(/\/$/, "");
-
 async function proxyRequest(request: NextRequest, segments: string[]) {
   const path = segments.join("/");
-  const url = `${BACKEND}/api/simulate/${path}`;
+  const backend = getBackendUrl();
+  const url = `${backend}/api/simulate/${path}`;
   const method = request.method;
 
   const headers: Record<string, string> = {};

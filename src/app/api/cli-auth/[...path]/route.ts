@@ -1,14 +1,12 @@
 import { NextRequest } from "next/server";
+import { getBackendUrl } from "@/lib/server/backend-url";
 
 export const maxDuration = 300;
 
-const BACKEND = (process.env.BACKEND_URL || (process.env.NODE_ENV === "production"
-  ? "https://bidmasterv2-production.up.railway.app"
-  : "http://localhost:8000")).replace(/\/$/, "");
-
 async function proxyRequest(request: NextRequest, segments: string[]) {
   const path = segments.join("/");
-  const url = new URL(`${BACKEND}/api/cli-auth/${path}`);
+  const backend = getBackendUrl();
+  const url = new URL(`${backend}/api/cli-auth/${path}`);
   request.nextUrl.searchParams.forEach((value, key) => {
     url.searchParams.append(key, value);
   });
@@ -44,7 +42,7 @@ async function proxyRequest(request: NextRequest, segments: string[]) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知错误";
-    console.error("[cli-auth-proxy] 后端请求失败", { path, backend: BACKEND, message });
+    console.error("[cli-auth-proxy] 后端请求失败", { path, backend, message });
     return new Response(JSON.stringify({ detail: `后端服务不可用: ${message}` }), {
       status: 502,
       headers: { "Content-Type": "application/json" },

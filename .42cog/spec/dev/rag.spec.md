@@ -246,12 +246,12 @@ RAG_MIN_SCORE=0.25
 1. 项目现有数据库已经是 PostgreSQL。
 2. 用户文件、用户权限、分析结果都在同一个数据库内。
 3. MVP 阶段避免额外部署 Qdrant / Milvus。
-4. Railway + Neon 的部署复杂度最低。
+4. 主生产沿用当前 PostgreSQL 可减少新增基础设施。
 
 前置条件：
 
 1. 确认当前 PostgreSQL 环境支持 `CREATE EXTENSION vector`。
-2. 如果生产环境 Neon 不支持或受限，再切换到 Qdrant Cloud。
+2. 如果主生产 PostgreSQL 不支持或受限，再评估独立 pgvector 实例或 Qdrant Cloud。
 
 索引建议：
 
@@ -813,7 +813,6 @@ Embedding 和 LLM 的 API Key 仍通过环境变量或用户密钥配置读取�
 3. embedding 文本是否允许发送到云端模型。
 4. RAG chunk 明文是否可以存数据库。
 5. 是否需要对 chunk 内容再次加密。
-6. Railway 部署环境是否允许安装 pgvector 依赖或连接 Neon pgvector。
 
 ### 14.4 成本准备
 

@@ -19,6 +19,7 @@
       }
     ],
     "paths": {
+      "@/lib/server/*": ["./src/lib/server/*"],
       "@/*": ["./src/frontend/*"],
       "@/db/*": ["./src/db/*"],
       "@/lib/*": ["./src/frontend/lib/*"]

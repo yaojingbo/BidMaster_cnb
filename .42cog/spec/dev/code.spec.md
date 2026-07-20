@@ -532,8 +532,8 @@ class LLMService:
 
 ```typescript
 // lib/api-keys.ts (Frontend)
-// API Key 仅通过环境变量传递，不存储在前端
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || ''
+// 浏览器统一访问同源 API，Next.js 服务端负责转发到 FastAPI
+const API_BASE_URL = ''
 
 export async function callAPI(endpoint: string, options?: RequestInit) {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {

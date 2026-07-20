@@ -1,2 +1,0 @@
-[2026/5/28 16:19:18] [frontend] [ERROR] [api_call] GET /api/extract/result/by-file/50bb77d7-29e9-479f-9653-03241694a4bd 网络错误
-  详情: signal timed out

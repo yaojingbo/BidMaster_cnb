@@ -3,12 +3,9 @@
  * 认证、提取、模拟编制和开标分析使用各自专用代理；其余后端接口在这里转发。
  */
 import { NextRequest } from "next/server";
+import { getBackendUrl } from "@/lib/server/backend-url";
 
 export const maxDuration = 300;
-
-const BACKEND = (process.env.BACKEND_URL || (process.env.NODE_ENV === "production"
-  ? "https://bidmasterv2-production.up.railway.app"
-  : "http://localhost:8000")).replace(/\/$/, "");
 
 const DEDICATED_PROXY_PREFIXES = new Set(["auth", "cli-auth", "extract", "simulate", "statistics"]);
 
@@ -22,7 +19,8 @@ async function proxyRequest(request: NextRequest, segments: string[]) {
   }
 
   const path = segments.join("/");
-  const url = new URL(`${BACKEND}/api/${path}`);
+  const backend = getBackendUrl();
+  const url = new URL(`${backend}/api/${path}`);
   request.nextUrl.searchParams.forEach((value, key) => {
     url.searchParams.append(key, value);
   });
@@ -61,7 +59,7 @@ async function proxyRequest(request: NextRequest, segments: string[]) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知错误";
-    console.error("[api-proxy] 后端请求失败", { path, backend: BACKEND, message });
+    console.error("[api-proxy] 后端请求失败", { path, backend, message });
     return new Response(JSON.stringify({ detail: `后端服务不可用: ${message}` }), {
       status: 502,
       headers: { "Content-Type": "application/json" },

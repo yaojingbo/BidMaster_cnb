@@ -26,7 +26,7 @@ from app.config import get_settings
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-_IS_PRODUCTION = os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RENDER") or os.getenv("FLY_APP_NAME")
+_IS_PRODUCTION = os.getenv("BID_MASTER_ENV", "development").lower() == "production"
 
 
 @router.post("/send-code")

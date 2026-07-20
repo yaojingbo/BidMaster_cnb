@@ -20,28 +20,28 @@
 - markitdown、pandoc、pandas 处理多格式文件
 
 **前端**
-- React 19 + TypeScript + Vite 8
-- Ant Design 6 + Tailwind CSS 4
-- ECharts 6（图表）
-- Axios + SSE（流式响应）
+- Next.js 15（App Router）+ React 19 + TypeScript
+- Tailwind CSS 4 + Radix UI
+- Recharts（图表）
+- Fetch API + SSE（流式响应）
 
 ## 目录结构
 
-```
+```text
 bid-master-web/
-├── src/                      # 源代码
-├── tests/                    # 测试套件
-├── demo/                     # 演示/原型代码
-├── resource/                # 参考资料
-├── spec/                     # 规约文档
-│   ├── ai/                   # AI 生成的规约草稿
-│   └── hi/                   # 人工确认的正式规约
-├── docs/                     # 文档（research/、bug-fix-summary/、plan/、error-log/、guide/、templates/）
-├── notes/                    # 个人笔记（按成员子目录）
-├── chats/                    # 对话记录（按成员子目录）
-├── .42cog/                   # 认知敏捷法文档
+├── src/app/                  # Next.js 页面与 API 代理
+├── src/frontend/             # 前端组件、Hooks、Stores 与工具库
+├── src/backend/              # FastAPI 后端与 CLI
+├── src/db/                   # 数据库 Schema 和类型
+├── tests/                    # 后端测试套件
+├── e2e/                      # Playwright 端到端测试
+├── demo/                     # 演示与原型代码
+├── docs/                     # 使用、部署与恢复文档
+├── notes/                    # 本地个人笔记
+├── chats/                    # Claude Code 对话记录
+├── .42cog/                   # 元数据、现实约束、规约和工作记录
 ├── .42plugin/                # 本地技能库
-├── CLAUDE.md                 # Claude Code 指南
+├── CLAUDE.md                 # Claude Code 项目指南
 └── .42plugin.yml             # 插件安装清单
 ```
 
@@ -101,11 +101,18 @@ make dev
 | `MINIMAX_API_KEY` | MiniMax |
 | `OLLAMA_BASE_URL` | 本地 Ollama |
 
-## 部署
+## 部署与代码仓库
 
-- **Docker**：使用项目根目录 `Dockerfile` 构建镜像
-- **Vercel**：前端部署，API 请求通过 `vercel.json` rewrite 转发
-- **Railway**：支持自动部署，通过环境变量配置 AI 密钥
+| 角色 | 当前方案 |
+|------|----------|
+| 主生产环境 | 腾讯云服务器 + systemd |
+| 正式域名 | <https://bidmaster.asia> |
+| 主代码仓库 | [CNB](https://cnb.cool/yaojingbo-2026/bidmaster) |
+
+腾讯云是当前唯一正式生产环境，CNB `main` 是开发与发布基准。
+
+- [腾讯云主部署说明](docs/deployment/tencent-cloud-systemd.md)
+- [macOS CLI 安装指南](docs/guide/mac-cli-install.md)
 
 ## API 概览
 

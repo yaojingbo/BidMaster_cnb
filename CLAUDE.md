@@ -24,7 +24,7 @@ Bid Master Web：招投标智能分析工具箱
 | -------- | ---------------------------- |
 | 语言     | TypeScript（前端）+ Python（后端） |
 | 包管理   | npm（前端）                   |
-| Git 托管 | cnb.cool / GitHub            |
+| Git 托管 | CNB（主仓库） |
 | 运行时   | Node.js 18+ / Python 3.12+   |
 
 ## 项目结构
@@ -36,8 +36,7 @@ Bid Master Web：招投标智能分析工具箱
 - tests/ - 测试套件
 - demo/ - 演示/原型代码
 - resource/ - 参考资料
-- spec/ai/ - AI 生成的规约草稿
-- spec/hi/ - 人工确认的正式规约
+- `.42cog/spec/` - 项目规约（pm/、dev/、design/）
 - docs/ - 文档（research/、bug-fix-summary/、plan/、error-log/、guide/、templates/）
 - notes/ - 个人笔记
 - chats/ - 对话记录
@@ -64,10 +63,14 @@ Bid Master Web：招投标智能分析工具箱
 - 使用 Makefile targets，不创建 shell 脚本
 - 代码修改完成后，自动重启前后端服务（kill 端口 8000/3000 进程后重新启动）
 
+## 部署与仓库
+
+- 主生产环境：腾讯云服务器，由 systemd 管理
+- 主代码仓库：CNB
+
 ## 文档
 
-- AI 规约草稿：`./spec/ai/{feature}-{type}.md`
-- 正式规约：`./spec/hi/{feature}-{type}.md`
+- 项目规约：`./.42cog/spec/`
 - 普通文档：`./docs/`
-- 深度研究：`./docs/research/`
+- 部署文档：`./docs/deployment/`
 - 工作记录：`./.42cog/work/`

@@ -68,8 +68,9 @@
 
 | 项目 | 技术 |
 |------|------|
-| 前端部署 | Vercel |
-| 后端部署 | Railway |
+| 生产环境 | 腾讯云服务器 |
+| 部署方式 | systemd |
+| 主代码仓库 | CNB |
 
 ## 项目里程碑
 
@@ -83,14 +84,14 @@
 
 | 类型 | 链接 |
 |------|------|
-| 代码仓库 | https://github.com/yaojingbo/my_learning |
-| 部署地址 | [填写] |
+| 主代码仓库（CNB） | https://cnb.cool/yaojingbo-2026/bidmaster |
+| 部署地址 | https://bidmaster.asia/ |
 | 文档地址 | [填写] |
 
 ## 现实约束
 
-详见 [.42cog/real/real.md](./real.md)
+详见 [.42cog/real/real.md](../real/real.md)
 
 ## 认知模型
 
-详见 [.42cog/cog/cog.md](./cog.md)
+详见 [.42cog/cog/cog.md](../cog/cog.md)
