@@ -7,6 +7,7 @@ import {
   jsonb,
   integer,
   bigint,
+  bigserial,
   primaryKey,
   customType,
 } from 'drizzle-orm/pg-core';
@@ -88,6 +89,31 @@ export const extracts = pgTable('extracts', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
+export const knowledgeDocuments = pgTable('knowledge_documents', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  userId: varchar('user_id', { length: 64 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  fileId: varchar('file_id', { length: 64 }).notNull().references(() => files.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  chunkCount: integer('chunk_count').notNull().default(0),
+  embeddingModel: text('embedding_model').notNull(),
+  contentHash: varchar('content_hash', { length: 64 }),
+  errorMessage: text('error_message'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
+// `embedding` is managed as vector(512) by the Python schema and pgvector.
+export const knowledgeChunks = pgTable('knowledge_chunks', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  documentId: varchar('document_id', { length: 64 }).notNull().references(() => knowledgeDocuments.id, { onDelete: 'cascade' }),
+  userId: varchar('user_id', { length: 64 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  chunkIndex: integer('chunk_index').notNull(),
+  content: text('content').notNull(),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
 export const apiKeys = pgTable('api_keys', {
   userId: varchar('user_id', { length: 64 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
   provider: varchar('provider', { length: 50 }).notNull(),
@@ -124,6 +150,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   simulates: many(simulates),
   openings: many(openings),
   extracts: many(extracts),
+  knowledgeDocuments: many(knowledgeDocuments),
+  knowledgeChunks: many(knowledgeChunks),
   apiKeys: many(apiKeys),
   resetTokens: many(resetTokens),
   cliDeviceCodes: many(cliDeviceCodes),

@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from app.config import get_settings
-from app.api import files, extract, settings, statistics, database as data, health, simulate, auth, api_keys, logs, cli_auth
+from app.api import files, extract, settings, statistics, database as data, health, simulate, auth, api_keys, logs, cli_auth, knowledge
 from app.utils.exceptions import AppError
 from app.limiter import limiter
 from slowapi import _rate_limit_exceeded_handler
@@ -107,6 +107,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(api_keys.router, prefix="/api")
 app.include_router(logs.router, prefix="/api")
 app.include_router(cli_auth.router, prefix="/api")
+app.include_router(knowledge.router, prefix="/api")
 
 
 # ── Request logging middleware ────────────────────────────────
