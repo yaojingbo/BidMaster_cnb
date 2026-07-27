@@ -1,0 +1,65 @@
+# ===== Claude Code =====
+.claude/
+
+# ===== Run logs =====
+/error_log/
+
+# ===== Bun & Node.js =====
+node_modules/
+bun.lockb
+*.log
+
+# ===== Build outputs =====
+dist/
+build/
+.next/
+out/
+
+# ===== OS files =====
+.DS_Store
+Thumbs.db
+
+# ===== Environment & Secrets =====
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+.secrets/
+
+# ===== Testing & Coverage =====
+coverage/
+*.lcov
+
+# ===== Temporary files =====
+tmp/
+temp/
+*.tmp
+*.bak
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.venv*/
+venv*/
+
+# ===== Uploads =====
+src/backend/uploads/
+/uploads/
+
+# ===== Test artifacts =====
+test-results/
+playwright-report/
+.playwright-mcp/
+
+# ===== TypeScript =====
+tsconfig.tsbuildinfo
+
+# ===== Local-only project data =====
+resource/
+notes/
+/data/
+/task/

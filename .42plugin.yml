@@ -1,0 +1,28 @@
+# =============================================================================
+# Bid Master Web - 插件安装清单
+# =============================================================================
+#
+# 批量安装：
+#   grep "^  - " .42plugin.yml | sed 's/  - //' | xargs -I {} 42plugin install {}
+#
+# =============================================================================
+
+plugins:
+  # ---------------------------------------------------------------------------
+  # 认知敏捷法套包 (42cog)
+  # ---------------------------------------------------------------------------
+  - zhiping/42cog/meta-42cog
+  - zhiping/42cog/user-story
+  - zhiping/42cog/system-architecture
+  - zhiping/42cog/product-requirements
+  - zhiping/42cog/database-design
+  - zhiping/42cog/coding
+  - zhiping/42cog/ui-design
+
+  # ---------------------------------------------------------------------------
+  # 开发工具套包
+  # ---------------------------------------------------------------------------
+  - zhiping/omc-dev/dev-init
+  - zhiping/omc-dev/cnb-webhook
+  - zhiping/smart-dev/auto-release-setup
+  - zhiping/smart-dev/dev-weekly-report

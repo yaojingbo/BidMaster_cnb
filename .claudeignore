@@ -1,0 +1,29 @@
+# ===== Build outputs =====
+dist/
+build/
+.next/
+
+# ===== Dependencies =====
+node_modules/
+
+# ===== Lock files =====
+bun.lockb
+package-lock.json
+yarn.lock
+
+# ===== OS files =====
+.DS_Store
+Thumbs.db
+
+# ===== Logs =====
+logs/
+*.log
+
+# ===== Git =====
+.git/
+
+# ===== Claude Code =====
+.claude/
+
+# ===== Others =====
+resource
