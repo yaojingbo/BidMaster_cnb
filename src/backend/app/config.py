@@ -82,6 +82,15 @@ class Settings(BaseSettings):
         "text/csv",
     ]
 
+    # Knowledge base / local embeddings
+    knowledge_embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    knowledge_embedding_cache_dir: str = "./models/fastembed"
+    knowledge_chunk_size: int = 800
+    knowledge_chunk_overlap: int = 120
+    knowledge_embedding_batch_size: int = 32
+    knowledge_search_top_k: int = 8
+    knowledge_search_min_score: float = 0.35
+
     # Email (Resend)
     resend_api_key: str = ""
     resend_from: str = "Bid Master <noreply@bidmaster.asia>"

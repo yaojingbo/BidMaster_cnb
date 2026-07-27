@@ -34,6 +34,7 @@ dependencies = [
     "PyJWT>=2.8.0",
     "sse-starlette>=2.1.0",
     "slowapi>=0.1.9",
+    "fastembed>=0.6.0,<1",
 ]
 
 [project.scripts]

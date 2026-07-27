@@ -5,6 +5,8 @@ PostgreSQL schema initialization.
 """
 
 SCHEMA_SQL = """
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- 迁移 1：如果 users.id 是 VARCHAR(8)，说明是极旧版本，全部重建
 DO $$
 BEGIN
@@ -228,6 +230,38 @@ CREATE INDEX IF NOT EXISTS idx_project_sources_user_category ON project_sources(
 CREATE INDEX IF NOT EXISTS idx_project_sources_user_region ON project_sources(user_id, region);
 CREATE INDEX IF NOT EXISTS idx_project_sources_user_favorite ON project_sources(user_id, is_favorite);
 CREATE INDEX IF NOT EXISTS idx_project_sources_user_updated ON project_sources(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS knowledge_documents (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    file_id VARCHAR(64) NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    chunk_count INT NOT NULL DEFAULT 0,
+    embedding_model TEXT NOT NULL,
+    content_hash VARCHAR(64),
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, file_id)
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id BIGSERIAL PRIMARY KEY,
+    document_id VARCHAR(64) NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
+    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    chunk_index INT NOT NULL,
+    content TEXT NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}',
+    embedding VECTOR(512) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(document_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_documents_user ON knowledge_documents(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_document ON knowledge_chunks(document_id, chunk_index);
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_user ON knowledge_chunks(user_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_embedding ON knowledge_chunks USING hnsw (embedding vector_cosine_ops);
 
 CREATE TABLE IF NOT EXISTS api_keys (
     user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
