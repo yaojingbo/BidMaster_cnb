@@ -62,7 +62,9 @@ CREATE TABLE IF NOT EXISTS users (
 -- 迁移 3：如果 files 表缺少 encrypted_content 列，添加它
 DO $$
 BEGIN
-    IF NOT EXISTS (
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'files'
+    ) AND NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'files' AND column_name = 'encrypted_content'
     ) THEN
@@ -97,7 +99,9 @@ END $$;
 -- 迁移 6：extracts 添加 status 列
 DO $$
 BEGIN
-    IF NOT EXISTS (
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'extracts'
+    ) AND NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'extracts' AND column_name = 'status'
     ) THEN
@@ -108,13 +112,17 @@ END $$;
 -- 迁移 7：openings 添加 ai_analysis 和 status 列
 DO $$
 BEGIN
-    IF NOT EXISTS (
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'openings'
+    ) AND NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'openings' AND column_name = 'ai_analysis'
     ) THEN
         ALTER TABLE openings ADD COLUMN ai_analysis TEXT;
     END IF;
-    IF NOT EXISTS (
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'openings'
+    ) AND NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'openings' AND column_name = 'status'
     ) THEN
@@ -125,25 +133,33 @@ END $$;
 -- 迁移 8：添加源文件指纹，用于安全复用历史分析结果
 DO $$
 BEGIN
-    IF NOT EXISTS (
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'files'
+    ) AND NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'files' AND column_name = 'file_hash'
     ) THEN
         ALTER TABLE files ADD COLUMN file_hash VARCHAR(64);
     END IF;
-    IF NOT EXISTS (
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'extracts'
+    ) AND NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'extracts' AND column_name = 'source_hash'
     ) THEN
         ALTER TABLE extracts ADD COLUMN source_hash TEXT;
     END IF;
-    IF NOT EXISTS (
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'openings'
+    ) AND NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'openings' AND column_name = 'source_hash'
     ) THEN
         ALTER TABLE openings ADD COLUMN source_hash TEXT;
     END IF;
-    IF NOT EXISTS (
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'simulates'
+    ) AND NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'simulates' AND column_name = 'source_hash'
     ) THEN
