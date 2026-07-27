@@ -27,7 +27,6 @@ const navItems = [
   { href: '/workbench', label: '功能', icon: FileSearch },
   { href: '/cli', label: 'CLI', icon: Terminal },
   { href: '/database', label: '文件管理', icon: FolderOpen },
-  { href: '/knowledge', label: '知识库', icon: BookOpen },
   { href: '/settings', label: 'AI 设置', icon: SlidersHorizontal },
 ];
 
