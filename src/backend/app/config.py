@@ -4,6 +4,7 @@ Reads settings from environment variables.
 """
 from functools import lru_cache
 from pathlib import Path
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +23,7 @@ _PROJECT_ROOT = _find_project_root(_BACKEND_DIR)
 _ENV_FILES = (
     _PROJECT_ROOT / ".env",
     _PROJECT_ROOT / ".env.local",
+    _PROJECT_ROOT / ".env.development.local",
     _BACKEND_DIR / ".env",
     _BACKEND_DIR / ".env.local",
 )
@@ -33,7 +35,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILES, case_sensitive=False, extra="allow")
 
     # Database
-    database_url: str = "postgresql://localhost:5432/bidmaster"
+    database_url: str = Field(
+        default="postgresql://localhost:5432/bidmaster",
+        validation_alias=AliasChoices("DATABASE_URL", "NEON_DATABASE_URL"),
+    )
 
     # AI Provider: deepseek | dashscope | zhipu | minimax | openai | claude | ollama
     ai_provider: str = "deepseek"
