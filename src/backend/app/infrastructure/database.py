@@ -39,6 +39,7 @@ class Database:
         self.database_url, self._needs_ssl = _clean_dsn(raw_url)
         self._pool: asyncpg.Pool | None = None
         self._connect_lock = asyncio.Lock()
+        self._shutdown = False
 
     async def _create_pool(self) -> asyncpg.Pool:
         kwargs: dict = {"min_size": 0, "max_size": 10, "max_inactive_connection_lifetime": 120}
@@ -51,43 +52,67 @@ class Database:
             kwargs["statement_cache_size"] = 0
         return await asyncpg.create_pool(self.database_url, **kwargs)
 
+    @staticmethod
+    def _pool_is_usable(pool: asyncpg.Pool | None) -> bool:
+        return pool is not None and not pool.is_closing()
+
     async def connect(self) -> None:
-        if self._pool:
+        if self._shutdown:
+            raise RuntimeError("Database connection manager is shut down")
+        if self._pool_is_usable(self._pool):
             return
         async with self._connect_lock:
-            if self._pool:
+            if self._shutdown:
+                raise RuntimeError("Database connection manager is shut down")
+            if self._pool_is_usable(self._pool):
                 return
+            stale_pool = self._pool
+            self._pool = None
+            if stale_pool is not None:
+                stale_pool.terminate()
             self._pool = await self._create_pool()
             print("Database pool connected")
 
     async def disconnect(self) -> None:
-        if self._pool:
-            await self._pool.close()
+        async with self._connect_lock:
+            if self._shutdown:
+                return
+            self._shutdown = True
+            pool = self._pool
             self._pool = None
+        if pool is not None:
+            await pool.close()
 
     @property
     def pool(self) -> asyncpg.Pool:
-        if not self._pool:
+        if self._shutdown:
+            raise RuntimeError("Database connection manager is shut down")
+        if not self._pool_is_usable(self._pool):
             raise RuntimeError("Database not connected. Call await db.connect() first.")
         return self._pool
 
-    async def _reset_pool(self) -> None:
-        pool = self._pool
-        self._pool = None
-        if pool:
-            pool.terminate()
-        await self.connect()
+    async def _reset_pool(self, failed_pool: asyncpg.Pool) -> None:
+        async with self._connect_lock:
+            if self._shutdown:
+                return
+            if self._pool is not failed_pool:
+                return
+            self._pool = None
+            failed_pool.terminate()
+            self._pool = await self._create_pool()
+            print("Database pool connected")
 
     async def _retry(self, fn, *args, retries=2):
-        """执行数据库操作，连接断开时重连重试。"""
+        """执行数据库操作，连接断开时按失败池代际重连重试。"""
         for attempt in range(retries + 1):
+            await self.connect()
+            pool = self.pool
             try:
-                pool = self.pool
                 return await fn(pool, *args)
             except (ConnectionError, asyncpg.PostgresConnectionError, asyncpg.InterfaceError, OSError):
                 if attempt >= retries:
                     raise
-                await self._reset_pool()
+                await self._reset_pool(pool)
 
     async def fetch_one(self, query: str, *args) -> dict | None:
         async def _do(pool: asyncpg.Pool):
@@ -112,18 +137,25 @@ class Database:
 
 # Global instance (lazy, only created when needed)
 _db: Database | None = None
+_db_lock = asyncio.Lock()
 
 
 async def get_database() -> Database:
     global _db
-    if _db is None:
-        _db = Database()
-        await _db.connect()
-    return _db
+    async with _db_lock:
+        if _db is None:
+            candidate = Database()
+            await candidate.connect()
+            _db = candidate
+        else:
+            await _db.connect()
+        return _db
 
 
 async def close_database() -> None:
     global _db
-    if _db:
-        await _db.disconnect()
+    async with _db_lock:
+        db = _db
         _db = None
+        if db is not None:
+            await db.disconnect()

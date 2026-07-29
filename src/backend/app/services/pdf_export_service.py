@@ -35,16 +35,19 @@ def analyze_markdown(markdown: str, source_type: str | None = None, title: str |
     wide_table_count = 0
     list_count = 0
     code_block_count = 0
-    in_code_block = False
+    code_fence: tuple[str, int, str | None] | None = None
 
     for index, line in enumerate(lines):
         stripped = line.strip()
-        if stripped.startswith("```"):
-            in_code_block = not in_code_block
-            if in_code_block:
-                code_block_count += 1
+        if code_fence is not None:
+            if _is_closing_code_fence(stripped, code_fence[0], code_fence[1]):
+                code_fence = None
             continue
-        if in_code_block:
+
+        opening_fence = _parse_opening_code_fence(stripped)
+        if opening_fence is not None:
+            code_fence = opening_fence
+            code_block_count += 1
             continue
 
         heading_match = re.match(r"^(#{1,6})\s+(.+)$", stripped)
@@ -165,31 +168,38 @@ def _markdown_to_typst(markdown: str, profile: MarkdownProfile) -> str:
     lines = markdown.splitlines()
     index = 0
     paragraph: list[str] = []
-    in_code_block = False
+    code_fence: tuple[str, int, str | None] | None = None
     code_lines: list[str] = []
 
     def flush_paragraph() -> None:
         if paragraph:
-            blocks.append(_typst_text(" ".join(part.strip() for part in paragraph if part.strip())))
+            blocks.append(_inline_markdown_to_typst(" ".join(part.strip() for part in paragraph if part.strip())))
             paragraph.clear()
+
+    def flush_code_block() -> None:
+        nonlocal code_fence
+        if code_fence is None:
+            return
+        blocks.append(_code_block_to_typst("\n".join(code_lines), code_fence[2]))
+        code_lines.clear()
+        code_fence = None
 
     while index < len(lines):
         line = lines[index]
         stripped = line.strip()
 
-        if stripped.startswith("```"):
-            flush_paragraph()
-            if in_code_block:
-                blocks.append("```\n" + "\n".join(code_lines) + "\n```")
-                code_lines.clear()
-                in_code_block = False
+        if code_fence is not None:
+            if _is_closing_code_fence(stripped, code_fence[0], code_fence[1]):
+                flush_code_block()
             else:
-                in_code_block = True
+                code_lines.append(line)
             index += 1
             continue
 
-        if in_code_block:
-            code_lines.append(line)
+        opening_fence = _parse_opening_code_fence(stripped)
+        if opening_fence is not None:
+            flush_paragraph()
+            code_fence = opening_fence
             index += 1
             continue
 
@@ -203,7 +213,7 @@ def _markdown_to_typst(markdown: str, profile: MarkdownProfile) -> str:
             flush_paragraph()
             level = len(heading.group(1))
             content = heading.group(2).strip()
-            blocks.append(f"{'=' * min(level, 3)} {_typst_text(content)}")
+            blocks.append(f"{'=' * min(level, 3)} {_inline_markdown_to_typst(content)}")
             index += 1
             continue
 
@@ -219,14 +229,14 @@ def _markdown_to_typst(markdown: str, profile: MarkdownProfile) -> str:
 
         if re.match(r"^\s*[-*+]\s+", line):
             flush_paragraph()
-            blocks.append("- " + _typst_text(re.sub(r"^\s*[-*+]\s+", "", line).strip()))
+            blocks.append("- " + _inline_markdown_to_typst(re.sub(r"^\s*[-*+]\s+", "", line).strip()))
             index += 1
             continue
 
         ordered = re.match(r"^\s*\d+[.)]\s+(.+)$", line)
         if ordered:
             flush_paragraph()
-            blocks.append("+ " + _typst_text(ordered.group(1).strip()))
+            blocks.append("+ " + _inline_markdown_to_typst(ordered.group(1).strip()))
             index += 1
             continue
 
@@ -240,6 +250,7 @@ def _markdown_to_typst(markdown: str, profile: MarkdownProfile) -> str:
         index += 1
 
     flush_paragraph()
+    flush_code_block()
     return "\n\n".join(blocks)
 
 
@@ -252,18 +263,57 @@ def _table_to_typst(table_lines: list[str], compact: bool) -> str:
     cells: list[str] = []
     for row_index, row in enumerate(normalized_rows):
         for cell in row:
-            text = _typst_text(cell.strip())
+            content = _inline_markdown_to_typst(cell.strip())
             if row_index == 0:
-                cells.append(f"[*{text}*]")
+                cells.append(f"[#strong[{content}]]")
             else:
-                cells.append(f"[{text}]")
+                cells.append(f"[{content}]")
     inset = "3pt" if compact else "5pt"
     return "#table(\n  columns: " + str(columns) + ",\n  stroke: 0.35pt + rgb(\"dddddd\"),\n  inset: " + inset + ",\n  " + ",\n  ".join(cells) + "\n)"
 
 
 def _split_table_row(line: str) -> list[str]:
-    stripped = line.strip().strip("|")
-    return [cell.strip() for cell in stripped.split("|")]
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|") and not _is_escaped_at(stripped, len(stripped) - 1):
+        stripped = stripped[:-1]
+
+    cells: list[str] = []
+    current: list[str] = []
+    index = 0
+    code_delimiter = 0
+
+    while index < len(stripped):
+        char = stripped[index]
+        if char == "\\" and index + 1 < len(stripped) and stripped[index + 1] == "|":
+            current.append("|")
+            index += 2
+            continue
+
+        if char == "`":
+            run_length = _count_run(stripped, index, "`")
+            if code_delimiter == 0:
+                closing_index = stripped.find("`" * run_length, index + run_length)
+                if closing_index >= 0:
+                    code_delimiter = run_length
+            elif run_length == code_delimiter:
+                code_delimiter = 0
+            current.append("`" * run_length)
+            index += run_length
+            continue
+
+        if char == "|" and code_delimiter == 0:
+            cells.append("".join(current).strip())
+            current.clear()
+            index += 1
+            continue
+
+        current.append(char)
+        index += 1
+
+    cells.append("".join(current).strip())
+    return cells
 
 
 def _is_table_start(lines: list[str], index: int) -> bool:
@@ -325,21 +375,102 @@ def _heading_style(doc_kind: str) -> str:
 
 
 def _typst_string(value: str) -> str:
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    escaped: list[str] = []
+    for char in value:
+        if char == "\\":
+            escaped.append("\\\\")
+        elif char == '"':
+            escaped.append('\\"')
+        elif char == "\n":
+            escaped.append("\\n")
+        elif char == "\r":
+            escaped.append("\\r")
+        elif char == "\t":
+            escaped.append("\\t")
+        elif ord(char) < 32:
+            escaped.append("�")
+        else:
+            escaped.append(char)
+    return '"' + "".join(escaped) + '"'
 
 
 def _typst_text(value: str) -> str:
-    escaped = (
-        value.replace("\\", "\\\\")
-        .replace("#", "\\#")
-        .replace("$", "\\$")
-        .replace("@", "\\@")
-        .replace("<", "\\<")
-        .replace(">", "\\>")
-        .replace("[", "\\[")
-        .replace("]", "\\]")
-        .replace("%", "\\%")
-        .replace("&", "\\&")
-        .replace("_", "\\_")
-    )
-    return escaped
+    return f"#text({_typst_string(value)})"
+
+
+def _inline_markdown_to_typst(value: str) -> str:
+    parts: list[str] = []
+    plain: list[str] = []
+    index = 0
+
+    def flush_plain() -> None:
+        if plain:
+            parts.append(_typst_text("".join(plain)))
+            plain.clear()
+
+    while index < len(value):
+        if value[index] == "\\" and index + 1 < len(value) and value[index + 1] in {"\\", "`", "*", "_", "[", "]", "#", "|"}:
+            plain.append(value[index + 1])
+            index += 2
+            continue
+
+        if value[index] == "`":
+            delimiter_length = _count_run(value, index, "`")
+            closing_index = value.find("`" * delimiter_length, index + delimiter_length)
+            if closing_index >= 0:
+                flush_plain()
+                code = value[index + delimiter_length:closing_index]
+                parts.append(f"#raw({_typst_string(code)})")
+                index = closing_index + delimiter_length
+                continue
+
+        if value.startswith("**", index):
+            closing_index = value.find("**", index + 2)
+            if closing_index >= 0:
+                flush_plain()
+                content = value[index + 2:closing_index]
+                parts.append(f"#strong[{_inline_markdown_to_typst(content)}]")
+                index = closing_index + 2
+                continue
+
+        plain.append(value[index])
+        index += 1
+
+    flush_plain()
+    return "".join(parts)
+
+
+def _code_block_to_typst(code: str, language: str | None) -> str:
+    language_arg = f", lang: {_typst_string(language)}" if language else ""
+    return f"#raw({_typst_string(code)}, block: true{language_arg})"
+
+
+def _parse_opening_code_fence(line: str) -> tuple[str, int, str | None] | None:
+    match = re.match(r"^(`{3,}|~{3,})(.*)$", line)
+    if not match:
+        return None
+    fence = match.group(1)
+    info = match.group(2).strip()
+    language = info.split()[0] if info and "`" not in info and "~" not in info else None
+    return fence[0], len(fence), language
+
+
+def _is_closing_code_fence(line: str, fence_char: str, minimum_length: int) -> bool:
+    match = re.match(rf"^{re.escape(fence_char)}{{{minimum_length},}}\s*$", line)
+    return bool(match)
+
+
+def _count_run(value: str, index: int, char: str) -> int:
+    end = index
+    while end < len(value) and value[end] == char:
+        end += 1
+    return end - index
+
+
+def _is_escaped_at(value: str, index: int) -> bool:
+    backslashes = 0
+    cursor = index - 1
+    while cursor >= 0 and value[cursor] == "\\":
+        backslashes += 1
+        cursor -= 1
+    return backslashes % 2 == 1
