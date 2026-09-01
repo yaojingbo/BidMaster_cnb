@@ -157,6 +157,14 @@ class OpeningAnalysisRequest(BaseModel):
     modules: Optional[list[str]] = None
     provider: Optional[str] = "deepseek"
     model: Optional[str] = None
+    evalRule: Optional[dict] = None
+
+
+class BenchmarkRuleSuggestRequest(BaseModel):
+    """贴原文 → AI 解析为结构化基准价规则的请求。"""
+    text: str
+    provider: Optional[str] = "deepseek"
+    model: Optional[str] = None
 
 
 class StatisticsResponse(BaseModel):

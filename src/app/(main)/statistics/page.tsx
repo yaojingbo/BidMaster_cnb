@@ -35,6 +35,7 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { TaskProgress } from '@/components/ui/TaskProgress';
 import { MarkdownPreview } from '@/components/ui/MarkdownPreview';
 import { getModulesFromColumns } from './column-module-map';
+import { EvalRuleCard, type EvalRuleConfig } from '@/components/statistics/EvalRuleCard';
 import { useFileUpload } from '@/hooks/useFileUpload';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { useFileStore } from '@/stores/file-store';
@@ -140,6 +141,24 @@ interface AnalysisResult {
     max_price?: number;
     ratio_to_max_pct?: number;
   }> | null;
+  benchmark_calculation?: {
+    method?: string;
+    method_label?: string;
+    price_field?: string;
+    source?: string;
+    benchmark?: number | null;
+    error?: string;
+    sheet_benchmark?: number | null;
+    inputs?: Record<string, unknown>;
+    steps?: Array<{ step: string; detail: string; numbers?: unknown[] }>;
+    excluded?: Array<{ name: string; price: number | null; reason: string }>;
+  };
+  benchmark_basis?: {
+    effective: number;
+    computed: number | null;
+    sheet: number | null;
+    origin: 'computed' | 'sheet';
+  };
 }
 
 export default function StatisticsPage() {
@@ -148,6 +167,23 @@ export default function StatisticsPage() {
   const [selectAllModules, setSelectAllModules] = useState(false);
   const [availableModules, setAvailableModules] = useState<AvailableModule[]>([]);
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
+  // 规则选择持久化到 localStorage：页面刷新/重新上传文件都不丢，避免用户误以为没生效
+  const EVAL_RULE_KEY = 'bm-statistics-evalRule';
+  const [evalRule, setEvalRule] = useState<EvalRuleConfig | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = localStorage.getItem(EVAL_RULE_KEY);
+      return raw ? (JSON.parse(raw) as EvalRuleConfig) : null;
+    } catch {
+      return null;
+    }
+  });
+  const persistEvalRule = (rule: EvalRuleConfig | null) => {
+    setEvalRule(rule);
+    try {
+      localStorage.setItem(EVAL_RULE_KEY, JSON.stringify(rule));
+    } catch { /* 忽略存储失败 */ }
+  };
   const [parsing, setParsing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -494,8 +530,12 @@ export default function StatisticsPage() {
   const handleAnalyze = async (modulesOverride?: string[]) => {
     if (!requireAuth()) return;
     if (!uploadedFile) return;
-    const modulesToUse = modulesOverride || selectedModules;
+    let modulesToUse = modulesOverride || selectedModules;
     if (modulesToUse.length === 0) return;
+    // 配置了评标规则时，强制启用「基准价」模块（即使表格没有基准价行）
+    if (evalRule && !modulesToUse.includes('benchmark')) {
+      modulesToUse = [...modulesToUse, 'benchmark'];
+    }
     setLoading(true);
     setResult(null);
     setAiContent('');
@@ -508,6 +548,7 @@ export default function StatisticsPage() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('modules', JSON.stringify(modulesToUse));
+      if (evalRule) formData.append('evalRule', JSON.stringify(evalRule));
       try {
         const res = await authFetch('/api/statistics/analyze/upload', {
           method: 'POST',
@@ -537,6 +578,7 @@ export default function StatisticsPage() {
           body: JSON.stringify({
             fileId: uploadedFile.id,
             modules: modulesToUse,
+            evalRule: evalRule ?? undefined,
           }),
         });
         const data = await res.json();
@@ -572,6 +614,7 @@ export default function StatisticsPage() {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('modules', JSON.stringify(selectedModules));
+        if (evalRule) formData.append('evalRule', JSON.stringify(evalRule));
         formData.append('provider', activeProvider);
         formData.append('model', activeModel);
         res = await authFetch('/api/statistics/analyze/comprehensive/upload/start', {
@@ -585,6 +628,7 @@ export default function StatisticsPage() {
           body: JSON.stringify({
             fileId: uploadedFile.id,
             modules: selectedModules,
+            evalRule: evalRule ?? undefined,
             provider: activeProvider,
             model: activeModel,
           }),
@@ -758,8 +802,17 @@ export default function StatisticsPage() {
               </div>
             )}
 
-            {/* 开始分析按钮 */}
-            {uploadedFile && rawHeaders.length > 0 && !result && (
+            {/* 评标基准价设置：预设办法 / 贴原文解析（specs/pm/opening-analysis-eval-rule-prd.md） */}
+            {uploadedFile && rawHeaders.length > 0 && (
+              <EvalRuleCard
+                value={evalRule}
+                onChange={persistEvalRule}
+                parsedMeta={parsedMeta as { benchmark_price?: number | null; max_price?: number | null; d_value?: number | null }}
+              />
+            )}
+
+            {/* 开始/重新分析按钮 */}
+            {uploadedFile && rawHeaders.length > 0 && (
               <button
                 onClick={() => {
                   const selectedInternal = selectedColumns
@@ -767,7 +820,8 @@ export default function StatisticsPage() {
                     .filter(Boolean);
                   const modules = getModulesFromColumns(
                     selectedInternal,
-                    parsedMeta as { benchmark_price?: number | null; max_price?: number | null }
+                    parsedMeta as { benchmark_price?: number | null; max_price?: number | null },
+                    !!evalRule,
                   );
                   const availKeys = modules.filter(m => m.available).map(m => m.key);
                   setSelectedModules(availKeys);
@@ -782,7 +836,7 @@ export default function StatisticsPage() {
                 ) : (
                   <BarChart3 className="h-5 w-5" />
                 )}
-                开始分析
+                {result ? '重新分析（按当前规则重算）' : '开始分析'}
               </button>
             )}
 
@@ -1310,14 +1364,26 @@ export default function StatisticsPage() {
                   {/* 基准价对比 */}
                   {activeTab === 'benchmark' && (
                     <div className="space-y-4">
-                      {result.benchmark_comparison ? (
+                      {result.benchmark_comparison || result.benchmark_calculation ? (
                         <>
-                          {/* 基准价信息 */}
+                          {/* 基准价信息（优先展示按办法计算所得，PRD §七） */}
                           <div className="rounded-xl border border-border p-6 bg-muted/50">
-                            <div className="flex items-center gap-4">
+                            <div className="flex flex-wrap items-center gap-3">
                               <span className="px-3 py-1 bg-primary/10 text-primary rounded text-sm">
-                                评标基准价: {result.meta.benchmark_price?.toLocaleString()}万
+                                评标基准价{result.benchmark_basis?.origin === 'computed' ? '（按办法计算）' : ''}:{' '}
+                                {(result.benchmark_basis?.effective ?? result.meta.benchmark_price)?.toLocaleString()}万
                               </span>
+                              {result.benchmark_basis?.sheet != null && result.benchmark_basis.origin === 'computed' && (
+                                <span className="px-3 py-1 bg-muted text-muted-foreground rounded text-sm">
+                                  表内基准价:{' '}
+                                  {result.benchmark_basis.sheet.toLocaleString()}万
+                                </span>
+                              )}
+                              {result.benchmark_calculation?.error && (
+                                <span className="px-3 py-1 bg-destructive/10 text-destructive rounded text-sm">
+                                  规则计算失败：{result.benchmark_calculation.error}
+                                </span>
+                              )}
                               {result.meta.max_price && (
                                 <span className="px-3 py-1 bg-destructive/10 text-destructive rounded text-sm">
                                   最高限价: {result.meta.max_price?.toLocaleString()}万
@@ -1330,6 +1396,37 @@ export default function StatisticsPage() {
                               )}
                             </div>
                           </div>
+
+                          {result.benchmark_calculation && !result.benchmark_calculation.error && (
+                            <div className="rounded-xl border border-border p-4 space-y-2">
+                              <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                                <BarChart3 className="h-4 w-4 text-primary" />
+                                计算过程对账{result.benchmark_calculation.method_label ? ` · ${result.benchmark_calculation.method_label}` : ''}
+                                <span className="text-xs text-muted-foreground font-normal">
+                                  （口径：{result.benchmark_calculation.price_field === 'final_price' ? '最终报价' : result.benchmark_calculation.price_field === 'bid_price' ? '初始投标价' : '自动选择'}）
+                                </span>
+                              </div>
+                              {(result.benchmark_calculation.steps ?? []).map((s, i) => (
+                                <div key={i} className="text-xs flex flex-wrap gap-x-2 gap-y-1">
+                                  <span className="px-1.5 py-0.5 bg-muted rounded shrink-0">{s.step}</span>
+                                  <span className="text-muted-foreground">{s.detail}</span>
+                                  {s.numbers && s.numbers.length > 0 && (
+                                    <span className="font-mono">{s.numbers.map(n => String(n)).join(' · ')}</span>
+                                  )}
+                                </div>
+                              ))}
+                              {(result.benchmark_calculation.excluded ?? []).length > 0 && (
+                                <div className="pt-1 text-xs space-y-0.5">
+                                  <div className="font-medium">剔除名单（共 {result.benchmark_calculation.excluded!.length} 家）：</div>
+                                  {result.benchmark_calculation.excluded!.map((e, i) => (
+                                    <div key={i} className="text-muted-foreground pl-3">
+                                      · {e.name || '（名称缺失）'}{e.price != null ? `：${e.price}` : ''} —— {e.reason}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           <div className="rounded-xl border border-border">
                             <table className="w-full text-sm">
@@ -1344,7 +1441,7 @@ export default function StatisticsPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {result.benchmark_comparison.map((item, i) => (
+                                {(result.benchmark_comparison ?? []).map((item, i) => (
                                   <tr key={i} className="border-t">
                                     <td className="p-3 font-medium">{item.name}</td>
                                     <td className="p-3 text-right">
@@ -1375,7 +1472,7 @@ export default function StatisticsPage() {
                         </>
                       ) : (
                         <div className="rounded-xl border border-border p-6 text-center text-muted-foreground">
-                          暂无数据（需要文件中包含评标基准价信息）
+                          暂无基准价数据——可在分析前的「评标基准价设置」里选择办法让系统按规则计算，或需表格本身含基准价行
                         </div>
                       )}
                     </div>

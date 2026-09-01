@@ -16,9 +16,10 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
 from sse_starlette.sse import EventSourceResponse
 
 from app.services.statistics_service import StatisticsService
+from app.services.eval_rule_service import VALID_METHODS, compute_benchmark_from_rule, normalize_rule
 from app.services.llm_service import LLMService
 from app.services.prompt_builder import get_prompt_builder
-from app.models.schemas import OpeningAnalysisRequest
+from app.models.schemas import BenchmarkRuleSuggestRequest, OpeningAnalysisRequest
 from app.utils.auth_dep import get_current_user
 from app.infrastructure.pg_storage import (
     add_opening,
@@ -305,6 +306,13 @@ def compute_all_dimensions(bidders: list, meta: dict, modules: list[str] = None)
 
 def _compute_dimensions(bidders: list, meta: dict, active_modules: list, result: dict):
     """compute_all_dimensions 的实际计算逻辑，分离以便于错误追踪。"""
+    # 评标基准价规则计算：AI 只解析参数，数值一律此处确定性算（specs/pm/opening-analysis-eval-rule-prd.md）
+    _eval_rule = meta.get("eval_rule") if isinstance(meta, dict) else None
+    if _eval_rule:
+        try:
+            result["benchmark_calculation"] = compute_benchmark_from_rule(_eval_rule, bidders, meta)
+        except ValueError as ve:
+            result["benchmark_calculation"] = {"error": str(ve)}
     bid_prices = [b["bid_price"] for b in bidders if b.get("bid_price") is not None and b["bid_price"] > 0]
 
     # Module A: 投标价排名
@@ -447,9 +455,12 @@ def _compute_dimensions(bidders: list, meta: dict, active_modules: list, result:
         else:
             result["score_ranking"] = []
 
-    # Module F: 基准价对比
-    if "benchmark" in active_modules and meta.get("benchmark_price") is not None and bid_prices:
-        benchmark = meta["benchmark_price"]
+    # Module F: 基准价对比（优先用按评标办法计算的基准价；表内值并存展示，PRD §七）
+    _calc = result.get("benchmark_calculation") or {}
+    _computed_bench = _calc.get("benchmark")
+    _effective_bench = _computed_bench if _computed_bench is not None else meta.get("benchmark_price")
+    if "benchmark" in active_modules and _effective_bench is not None and bid_prices:
+        benchmark = _effective_bench
         max_price = meta.get("max_price")
         benchmark_results = []
 
@@ -479,6 +490,12 @@ def _compute_dimensions(bidders: list, meta: dict, active_modules: list, result:
             benchmark_results,
             key=lambda x: abs(x.get("deviation_pct", 0)),
         )
+        result["benchmark_basis"] = {
+            "effective": benchmark,
+            "computed": _computed_bench,
+            "sheet": meta.get("benchmark_price"),
+            "origin": "computed" if _computed_bench is not None else "sheet",
+        }
     else:
         result["benchmark_comparison"] = None
 
@@ -488,7 +505,7 @@ def get_available_modules(columns: list[str], meta: dict) -> list[dict]:
     has_bid_price = "bid_price" in columns
     has_final = any(c in columns for c in ["final_price", "remarks"])
     has_scores = any(c in columns for c in ["credit_score", "technical_score", "commercial_score", "total_score"])
-    has_benchmark = meta.get("benchmark_price") is not None
+    has_benchmark = meta.get("benchmark_price") is not None or bool(meta.get("eval_rule"))
 
     modules = [
         {
@@ -525,7 +542,10 @@ def get_available_modules(columns: list[str], meta: dict) -> list[dict]:
             "key": "benchmark",
             "label": "基准价对比",
             "available": has_benchmark,
-            "description": "各投标报价与评标基准价的偏离分析" if has_benchmark else "表格中未检测到评标基准价数据",
+            "description": (
+                ("已启用基准价对比（来源：" + ("按评标办法计算" if meta.get("eval_rule") else "表内基准价行") + "）")
+                if has_benchmark else "表格未含基准价，且未配置计算规则——可先在「评标基准价设置」里选办法"
+            ),
         },
         {
             "key": "comprehensive",
@@ -601,6 +621,8 @@ async def analyze_opening(request: OpeningAnalysisRequest, current_user: dict = 
 
         parsed = parse_opening_excel(content, filename)
         modules = request.modules or None
+        if request.evalRule:
+            parsed["meta"]["eval_rule"] = request.evalRule
         result = compute_all_dimensions(parsed["bidders"], parsed["meta"], modules)
 
         file_record = await get_file(request.fileId, current_user["id"])
@@ -626,6 +648,7 @@ async def analyze_opening(request: OpeningAnalysisRequest, current_user: dict = 
 async def analyze_opening_upload(
     file: UploadFile = File(...),
     modules: Optional[str] = Form(None),
+    evalRule: Optional[str] = Form(None),
     current_user: dict = Depends(get_current_user),
 ):
     """
@@ -640,12 +663,16 @@ async def analyze_opening_upload(
             module_list = None
         if module_list is None and modules:
             module_list = [m.strip() for m in modules.split(",") if m.strip()]
-        cached = await _find_sufficient_completed_opening(source_hash, module_list, current_user["id"])
-        if cached:
-            return {"success": True, "data": _opening_record_to_result(cached), "cached": True}
+        eval_rule_dict = _load_eval_rule_form(evalRule)
+        if not eval_rule_dict:
+            cached = await _find_sufficient_completed_opening(source_hash, module_list, current_user["id"])
+            if cached:
+                return {"success": True, "data": _opening_record_to_result(cached), "cached": True}
 
         parsed = parse_opening_excel(content, file.filename)
 
+        if eval_rule_dict:
+            parsed["meta"]["eval_rule"] = eval_rule_dict
         result = compute_all_dimensions(parsed["bidders"], parsed["meta"], module_list)
 
         # 保存开标结果到 mock_storage
@@ -931,6 +958,8 @@ async def analyze_comprehensive(request: OpeningAnalysisRequest, current_user: d
 
         parsed = parse_opening_excel(content, filename)
         modules = request.modules or None
+        if request.evalRule:
+            parsed["meta"]["eval_rule"] = request.evalRule
         analysis_data = compute_all_dimensions(parsed["bidders"], parsed["meta"], modules)
 
         return EventSourceResponse(
@@ -944,6 +973,7 @@ async def analyze_comprehensive(request: OpeningAnalysisRequest, current_user: d
 async def analyze_comprehensive_upload(
     file: UploadFile = File(...),
     modules: Optional[str] = Form(None),
+    evalRule: Optional[str] = Form(None),
     provider: Optional[str] = Form("deepseek"),
     model: Optional[str] = Form(None),
     current_user: dict = Depends(get_current_user),
@@ -961,6 +991,9 @@ async def analyze_comprehensive_upload(
             module_list = None
         if module_list is None and modules:
             module_list = [m.strip() for m in modules.split(",") if m.strip()]
+        eval_rule_dict = _load_eval_rule_form(evalRule)
+        if eval_rule_dict:
+            parsed["meta"]["eval_rule"] = eval_rule_dict
         analysis_data = compute_all_dimensions(parsed["bidders"], parsed["meta"], module_list)
 
         return EventSourceResponse(
@@ -991,9 +1024,12 @@ async def start_comprehensive_analysis(
         filename = "bid_opening.xlsx"
         parsed = parse_opening_excel(content, filename)
         modules = request.modules or None
-        cached = await _find_sufficient_completed_opening(source_hash, modules, current_user["id"], require_ai=True)
-        if cached:
-            return {"success": True, "task_id": cached["id"], "cached": True}
+        if request.evalRule:
+            parsed["meta"]["eval_rule"] = request.evalRule
+        if not request.evalRule:
+            cached = await _find_sufficient_completed_opening(source_hash, modules, current_user["id"], require_ai=True)
+            if cached:
+                return {"success": True, "task_id": cached["id"], "cached": True}
         analysis_data = compute_all_dimensions(parsed["bidders"], parsed["meta"], modules)
 
         file_record = await get_file(request.fileId, current_user["id"])
@@ -1086,6 +1122,7 @@ async def start_comprehensive_analysis(
 async def start_comprehensive_analysis_upload(
     file: UploadFile = File(...),
     modules: Optional[str] = Form(None),
+    evalRule: Optional[str] = Form(None),
     provider: Optional[str] = Form("deepseek"),
     model: Optional[str] = Form(None),
     current_user: dict = Depends(get_current_user),
@@ -1105,11 +1142,15 @@ async def start_comprehensive_analysis_upload(
             module_list = None
         if module_list is None and modules:
             module_list = [m.strip() for m in modules.split(",") if m.strip()]
-        cached = await _find_sufficient_completed_opening(source_hash, module_list, current_user["id"], require_ai=True)
-        if cached:
-            return {"success": True, "task_id": cached["id"], "cached": True}
+        eval_rule_dict = _load_eval_rule_form(evalRule)
+        if not eval_rule_dict:
+            cached = await _find_sufficient_completed_opening(source_hash, module_list, current_user["id"], require_ai=True)
+            if cached:
+                return {"success": True, "task_id": cached["id"], "cached": True}
 
         parsed = parse_opening_excel(content, file.filename)
+        if eval_rule_dict:
+            parsed["meta"]["eval_rule"] = eval_rule_dict
         analysis_data = compute_all_dimensions(parsed["bidders"], parsed["meta"], module_list)
 
         task_id = str(uuid.uuid4())[:8]
@@ -1212,3 +1253,91 @@ async def export_report(analysis_id: str, current_user: dict = Depends(get_curre
         "success": True,
         "data": {"analysisId": analysis_id, "format": "json"},
     }
+
+def _load_eval_rule_form(raw: Optional[str]) -> Optional[dict]:
+    """上传直析端点的 evalRule 表单字段解析；坏 JSON 直接 400，绝不静默吞掉。"""
+    if not raw:
+        return None
+    try:
+        val = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(status_code=400, detail="evalRule 不是合法的 JSON")
+    if val is None:
+        return None
+    if not isinstance(val, dict):
+        raise HTTPException(status_code=400, detail="evalRule 必须是对象")
+    return val
+
+
+def _extract_json_object(text: str) -> dict:
+    """从模型输出中抠出第一个完整 JSON 对象（容忍代码块围栏）。"""
+    import re as _re
+
+    text = (text or "").strip()
+    text = _re.sub(r"^```[a-zA-Z]*\s*", "", text)
+    text = _re.sub(r"\s*```$", "", text)
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        raise ValueError("输出中找不到 JSON 对象")
+    return json.loads(text[start:end + 1])
+
+
+@router.post("/benchmark/suggest")
+async def suggest_benchmark_rule(request: BenchmarkRuleSuggestRequest, current_user: dict = Depends(get_current_user)):
+    """
+    评标办法原文 → 结构化基准价规则草案。
+    AI 只负责把文字映射成已知枚举参数；数值计算永远在 eval_rule_service 纯函数里做。
+    无法映射时如实返回 mappable=false 与差异说明，绝不编造参数。
+    """
+    text = (request.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="缺少评标办法原文")
+
+    builder = get_prompt_builder()
+    messages = [
+        {"role": "system", "content": builder.build_rule_extract_system_prompt()},
+        {"role": "user", "content": builder.build_rule_extract_user_prompt(text)},
+    ]
+    provider = request.provider or "deepseek"
+
+    full = ""
+    try:
+        async for chunk in LLMService().llm.complete(
+            provider, messages, model=request.model, stream=False,
+            user_id=current_user["id"], temperature=0,
+        ):
+            full += chunk or ""
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"规则解析模型调用失败：{e}")
+
+    full = (full or "").strip()
+    if not full:
+        raise HTTPException(status_code=502, detail="规则解析模型返回为空")
+
+    try:
+        parsed_json = _extract_json_object(full)
+    except (ValueError, json.JSONDecodeError) as ve:
+        return {"success": True, "data": {
+            "mappable": False, "rule": None, "evidence_quote": "",
+            "unmapped_points": [], "reason": f"模型输出无法解析为 JSON：{ve}",
+        }}
+
+    data = {
+        "mappable": bool(parsed_json.get("mappable")),
+        "reason": str(parsed_json.get("reason") or ""),
+        "evidence_quote": str(parsed_json.get("evidence_quote") or ""),
+        "unmapped_points": parsed_json.get("unmapped_points") or [],
+        "rule": None,
+    }
+    raw_rule = parsed_json.get("rule")
+    if isinstance(raw_rule, dict) and raw_rule:
+        try:
+            normalized = normalize_rule(raw_rule)
+            if normalized.get("method") not in VALID_METHODS:
+                raise ValueError("办法不在可用清单内")
+            data["rule"] = normalized
+        except ValueError as ve:
+            data["mappable"] = False
+            data["reason"] = data["reason"] or f"模型给出的规则未通过校验：{ve}"
+
+    return {"success": True, "data": data}

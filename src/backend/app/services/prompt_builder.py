@@ -255,6 +255,27 @@ class PromptBuilder:
         )
 
 
+    def build_rule_extract_system_prompt(self) -> str:
+        """评标办法原文 → 结构化基准价规则的系统提示词。"""
+        rules = self._read("opening_rule_extract.md")
+        return f"""{rules}
+
+---
+
+# 输出格式
+
+只输出一个 JSON 对象，禁止任何解释文字、开场白或代码块标记。
+"""
+
+    def build_rule_extract_user_prompt(self, text: str) -> str:
+        clipped = (text or "").strip()[:6000]
+        return (
+            "# 待解析的评标办法原文\n\n"
+            f"{clipped}\n\n"
+            "请把上面的评标基准价办法解析为指定的结构化规则 JSON。原文没写的参数不要编造。"
+        )
+
+
 # 全局单例
 _prompt_builder: PromptBuilder | None = None
 

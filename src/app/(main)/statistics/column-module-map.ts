@@ -8,6 +8,7 @@ export interface ModuleAvailability {
 export function getModulesFromColumns(
   selectedInternalColumns: string[],
   meta: { benchmark_price?: number | null; max_price?: number | null },
+  hasEvalRule: boolean = false,
 ): ModuleAvailability[] {
   const has = (field: string) => selectedInternalColumns.includes(field);
   const hasAny = (...fields: string[]) => fields.some(has);
@@ -15,7 +16,7 @@ export function getModulesFromColumns(
   const hasBidPrice = has("bid_price");
   const hasFinal = hasAny("final_price", "remarks");
   const hasScores = hasAny("credit_score", "technical_score", "commercial_score", "total_score");
-  const hasBenchmark = meta?.benchmark_price != null;
+  const hasBenchmark = meta?.benchmark_price != null || hasEvalRule;
 
   return [
     {
@@ -52,7 +53,9 @@ export function getModulesFromColumns(
       key: "benchmark",
       label: "基准价对比",
       available: hasBenchmark,
-      description: hasBenchmark ? "各投标报价与评标基准价的偏离分析" : "表格中未检测到评标基准价数据",
+      description: hasBenchmark
+        ? (hasEvalRule ? "按所选评标办法计算基准价并对比偏离" : "各投标报价与评标基准价的偏离分析")
+        : "表格未检测到基准价，且未配置计算规则",
     },
     {
       key: "comprehensive",
