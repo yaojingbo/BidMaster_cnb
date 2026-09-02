@@ -6,7 +6,7 @@
 #
 # 注意：
 #   - CNB 默认构建环境（default-build-env）不含 Python/Node，需给 stage 指定 image。
-#   - CNB 构建节点在国内，直连 npmjs/PyPI 易 ECONNRESET，故用国内镜像（npmmirror / 清华 PyPI）。
+#   - CNB 构建节点在国内，直连 npmjs/PyPI 易 ECONNRESET，故用国内镜像（npmmirror / 阿里云 PyPI）。
 #   - docker.volumes 挂载 pip/npm/node_modules 缓存，二次构建复用加速。
 #
 # 部署密钥：来自 CNB「密钥仓库」bidmaster-secrets 的 deploy.yml（imports 注入 COOLIFY_DEPLOY_WEBHOOK）
@@ -22,14 +22,8 @@ main:
         - name: 后端单元测试
           image: python:3.12
           script: |
-            echo "[1/4] 升级 pip..."
-            python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
-            echo "[2/4] 安装核心依赖（paddlenlp等，约3-5分钟）..."
-            python -m pip install paddlepaddle paddlenlp -i https://pypi.tuna.tsinghua.edu.cn/simple --progress-bar on
-            echo "[3/4] 安装 requirements 其余依赖..."
-            python -m pip install -r src/backend/requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --progress-bar on
-            echo "[4/4] 运行测试..."
-            PYTHONPATH=src/backend python -m pytest --import-mode=importlib src/backend/tests/unit -v
+            python -m pip install -r src/backend/requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --retries 3 --timeout 60 -q
+            PYTHONPATH=src/backend python -m pytest --import-mode=importlib src/backend/tests/unit -q
         - name: 前端类型检查
           image: node:20
           script: |
@@ -48,14 +42,8 @@ main:
         - name: 后端单元测试
           image: python:3.12
           script: |
-            echo "[1/4] 升级 pip..."
-            python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
-            echo "[2/4] 安装核心依赖（paddlenlp等，约3-5分钟）..."
-            python -m pip install paddlepaddle paddlenlp -i https://pypi.tuna.tsinghua.edu.cn/simple --progress-bar on
-            echo "[3/4] 安装 requirements 其余依赖..."
-            python -m pip install -r src/backend/requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --progress-bar on
-            echo "[4/4] 运行测试..."
-            PYTHONPATH=src/backend python -m pytest --import-mode=importlib src/backend/tests/unit -v
+            python -m pip install -r src/backend/requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --retries 3 --timeout 60 -q
+            PYTHONPATH=src/backend python -m pytest --import-mode=importlib src/backend/tests/unit -q
         - name: 前端生产构建
           image: node:20
           script: |
