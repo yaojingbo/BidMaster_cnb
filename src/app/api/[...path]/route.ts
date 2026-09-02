@@ -7,7 +7,7 @@ import { getBackendUrl } from "@/lib/server/backend-url";
 
 export const maxDuration = 300;
 
-const DEDICATED_PROXY_PREFIXES = new Set(["auth", "cli-auth", "extract", "simulate", "statistics"]);
+const DEDICATED_PROXY_PREFIXES = new Set(["auth", "cli-auth", "extract", "simulate", "statistics", "knowledge"]);
 
 async function proxyRequest(request: NextRequest, segments: string[]) {
   const prefix = segments[0];

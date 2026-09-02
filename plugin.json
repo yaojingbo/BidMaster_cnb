@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bm",
+  "version": "0.1.0",
+  "description": "Bid Master Web",
+  "license": "MIT",
+  "keywords": ["aias"]
+}

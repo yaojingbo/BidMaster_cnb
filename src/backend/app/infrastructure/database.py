@@ -43,6 +43,20 @@ class Database:
 
     async def _create_pool(self) -> asyncpg.Pool:
         kwargs: dict = {"min_size": 0, "max_size": 10, "max_inactive_connection_lifetime": 120}
+        try:
+            from pgvector.asyncpg import register_vector
+
+            async def init_connection(conn: asyncpg.Connection) -> None:
+                try:
+                    await register_vector(conn)
+                except (asyncpg.UndefinedObjectError, asyncpg.UndefinedFunctionError):
+                    # 知识库关闭或扩展尚未安装时，核心业务仍可使用数据库连接。
+                    pass
+
+            kwargs["init"] = init_connection
+        except ImportError:
+            # 依赖安装前保留现有业务可启动性；RAG 能力检查会返回明确错误。
+            pass
         if self._needs_ssl:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
@@ -72,6 +86,13 @@ class Database:
                 stale_pool.terminate()
             self._pool = await self._create_pool()
             print("Database pool connected")
+
+    async def register_vector_codec(self) -> None:
+        """在 vector 扩展创建后为池内现有连接注册编解码器。"""
+        from pgvector.asyncpg import register_vector
+
+        async with self.pool.acquire() as conn:
+            await register_vector(conn)
 
     async def disconnect(self) -> None:
         async with self._connect_lock:

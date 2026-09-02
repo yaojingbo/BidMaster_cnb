@@ -49,11 +49,46 @@ class Settings(BaseSettings):
     # LLM Providers API Base URLs (OpenAI-compatible providers need custom endpoints)
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    dashscope_embedding_base_url: str = ""
     zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     minimax_base_url: str = "https://api.minimaxi.com/v1"
 
     # Ollama (optional, for local)
     ollama_base_url: str = "http://localhost:11434"
+
+    # Knowledge Base / RAG
+    knowledge_base_enabled: bool = True
+    rag_required: bool = False
+    rag_test_mode: bool = False
+    rag_service_enabled: bool = False
+    rag_service_url: str = "http://127.0.0.1:8100"
+    rag_internal_token: str = ""
+    rag_service_timeout_seconds: float = 30.0
+    rag_embedding_provider: str = "dashscope"
+    rag_embedding_model: str = "text-embedding-v4"
+    rag_embedding_dimension: int = 1024
+    rag_embedding_batch_size: int = 10
+    rag_embedding_batch_max_tokens: int = 8192
+    rag_chunk_size: int = 1000
+    rag_chunk_overlap: int = 160
+    rag_min_chunk_chars: int = 80
+    rag_vector_top_k: int = 30
+    rag_keyword_top_k: int = 20
+    rag_context_k: int = 8
+    rag_rrf_k: int = 60
+    rag_index_version: str = "v2-embedding-v4"
+    rag_chunking_version: str = "v1"
+    rag_index_concurrency: int = 2
+    rag_task_stale_seconds: int = 900
+    rag_archive_max_size: int = 50 * 1024 * 1024
+    rag_archive_max_entries: int = 100
+    rag_archive_max_pdf_files: int = 50
+    rag_archive_max_entry_size: int = 50 * 1024 * 1024
+    rag_archive_max_uncompressed_size: int = 250 * 1024 * 1024
+    rag_archive_max_entry_ratio: float = 100.0
+    rag_archive_max_total_ratio: float = 50.0
+    rag_archive_max_path_depth: int = 10
+    rag_archive_max_filename_bytes: int = 255
 
     # Encryption
     fernet_key: str = ""

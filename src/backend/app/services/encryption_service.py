@@ -33,6 +33,14 @@ class EncryptionService:
         """
         return self.fernet.encrypt(data)
 
+    def encrypt_text(self, text: str) -> str:
+        """兼容旧调用方的文本加密接口。"""
+        return self.encrypt(text.encode("utf-8")).decode("utf-8")
+
+    def decrypt_text(self, encrypted_text: str) -> str:
+        """兼容旧调用方的文本解密接口。"""
+        return self.decrypt(encrypted_text.encode("utf-8")).decode("utf-8")
+
     def decrypt(self, encrypted_data: bytes) -> bytes:
         """
         Decrypt data using Fernet symmetric encryption.

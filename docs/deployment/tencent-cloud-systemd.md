@@ -2,9 +2,9 @@
 
 ## 部署定位
 
-腾讯云服务器是 Bid Master Web 当前唯一正式生产环境，正式域名为 <https://bidmaster.asia>。前端使用 Next.js，后端使用 FastAPI，当前进程由 systemd 管理。
+腾讯云服务器是 Bid Master Web 当前唯一正式生产环境，正式域名为 <https://bidmaster.asia>。前端使用 Next.js，后端使用 FastAPI；RAG 3.0 增加独立 Node.js/Mastra 服务，三个进程均由 systemd 管理。
 
-本文只记录部署原则和核查流程。服务器目录、运行用户、systemd 服务名和 Nginx 配置必须以服务器当前状态为准，不应直接用示例覆盖线上配置。
+RAG 服务只监听 `127.0.0.1:8100`（实际端口发布前必须核查），仅允许 FastAPI 通过服务间凭据调用。Nginx 继续只反代 Next.js，不把 RAG 端口暴露到公网。RAG 服务异常只影响知识库索引和问答，不得阻塞文件上传、解析和其他既有业务。
 
 ## 发布前检查
 
@@ -22,7 +22,8 @@
 systemctl list-units --type=service --all | grep -Ei 'bid|next|node|python|uvicorn'
 systemctl status <frontend-service> --no-pager
 systemctl status <backend-service> --no-pager
-ss -ltnp | grep -E ':3000|:8000'
+systemctl status <rag-service> --no-pager
+ss -ltnp | grep -E ':3000|:8000|:8100'
 nginx -t
 ```
 
@@ -53,11 +54,15 @@ git status --short
 按服务器实际端口和路由验证：
 
 ```bash
+curl -fsS http://127.0.0.1:8100/health/live
+curl -fsS http://127.0.0.1:8100/health/ready
 curl -fsS http://127.0.0.1:8000/api/health
 curl -fsSI http://127.0.0.1:3000/
 curl -fsSI https://bidmaster.asia/
 curl -fsS https://bidmaster.asia/api/health
 ```
+
+RAG `/health/live` 只检查进程；`/health/ready` 分项检查 Neon、Zilliz、Embedding 配置和 outbox worker。RAG readiness 失败不得使 FastAPI `/api/health` 失败。
 
 同时验证：
 
@@ -76,6 +81,14 @@ curl -fsS https://bidmaster.asia/api/health
 3. 如包含数据库迁移，按迁移方案单独处理，不直接回滚代码后假设数据库自动兼容。
 4. 恢复服务后重新执行健康检查和关键业务冒烟测试。
 5. 将问题修复后重新走正常发布流程，不在服务器直接修改源码。
+
+## 恢复生产保护
+
+1. 生产恢复只能回到已记录的健康提交、已验证数据库状态和受控 systemd 服务，不从本地开发工作区直接覆盖服务器源码。
+2. 恢复前先确认前端、后端和 RAG 服务的实际服务名、端口、环境文件和持久化目录，避免误停非本项目进程或覆盖上传数据。
+3. RAG 服务恢复失败时，只下线知识库索引和问答入口；不得因此回退或重置 FastAPI、Next.js、数据库和文件存储。
+4. 数据库或持久化文件恢复必须先保留现状备份，再按既定备份点恢复；禁止用 `git reset --hard`、删除目录或重新初始化数据库替代恢复流程。
+5. 恢复完成后必须重新执行健康检查、登录、上传下载、SSE 和知识库最小问答冒烟，并记录恢复提交、备份点、操作者和时间。
 
 ## 敏感信息
 

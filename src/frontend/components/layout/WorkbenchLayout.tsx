@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   BarChart3,
+  BookOpen,
   Database,
   FileSearch,
   FileText,
@@ -40,9 +41,15 @@ const workspaceNav = [
     items: [{ href: '/statistics', label: '开标分析', icon: BarChart3 }],
   },
   {
-    title: '系统工具',
+    title: '知识与数据',
     items: [
       { href: '/database', label: '文件管理', icon: Database },
+      { href: '/knowledge', label: '知识库', icon: BookOpen },
+    ],
+  },
+  {
+    title: '系统工具',
+    items: [
       { href: '/settings', label: 'AI 设置', icon: Settings },
       { href: '/logs', label: '系统日志', icon: ScrollText },
     ],
@@ -154,6 +161,15 @@ export function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
           )}
         </div>
       </aside>
+
+      <div className="mb-4 flex gap-2 overflow-x-auto px-1 lg:hidden">
+        <Link href="/database" className="rounded-full border px-3 py-2 text-sm text-muted-foreground">
+          文件管理
+        </Link>
+        <Link href="/knowledge" className="rounded-full border px-3 py-2 text-sm font-medium text-primary">
+          知识库
+        </Link>
+      </div>
 
       <main className="min-w-0 flex-1">{children}</main>
     </div>

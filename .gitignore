@@ -1,5 +1,6 @@
 # ===== Claude Code =====
 .claude/
+.firecrawl/
 
 # ===== Run logs =====
 /error_log/
@@ -59,7 +60,16 @@ playwright-report/
 tsconfig.tsbuildinfo
 
 # ===== Local-only project data =====
-resource/
 notes/
 /data/
 /task/
+
+# ===== 六组 · 过程材料（不入库） =====
+_build/
+_tmp/
+_archive/*
+!_archive/*-delisted/
+
+# ===== 六组 · 外部参考（仅 README 入库） =====
+resources/**
+!resources/README.md

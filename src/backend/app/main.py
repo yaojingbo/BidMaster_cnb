@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from app.config import get_settings
-from app.api import files, extract, settings, statistics, database as data, health, simulate, auth, api_keys, logs, cli_auth
+from app.api import files, extract, settings, statistics, database as data, health, simulate, auth, api_keys, logs, cli_auth, knowledge_bases
 from app.utils.exceptions import AppError
 from app.limiter import limiter
 from slowapi import _rate_limit_exceeded_handler
@@ -20,13 +20,31 @@ async def lifespan(app: FastAPI):
     from app.infrastructure.database import get_database, close_database
     from app.infrastructure.db_schema import init_schema
 
+    from urllib.parse import urlparse
+
     settings = get_settings()
-    print(f"Starting Bid Master API on port 8000")
-    print(f"Database: {settings.database_url[:50]}...")
+    database = urlparse(settings.database_url)
+    database_target = f"{database.hostname or 'unknown'}:{database.port or 5432}/{database.path.lstrip('/')}"
+    print("Starting Bid Master API on port 8000")
+    print(f"Database: {database_target}")
 
     try:
         db = await get_database()
         await init_schema(db)
+        if get_settings().knowledge_base_enabled:
+            from app.infrastructure.rag_repository import RagRepository
+            reset_count = await RagRepository(db).reset_stale_processing(
+                get_settings().rag_task_stale_seconds
+            )
+            if reset_count:
+                print(f"Recovered {reset_count} interrupted RAG indexes to pending")
+            from app.services.rag_dependencies import recover_index_jobs
+            recovery = await recover_index_jobs()
+            if recovery["abandoned"] or recovery["recovered"]:
+                print(
+                    f"RAG job recovery: recovered={recovery['recovered']}, "
+                    f"abandoned={recovery['abandoned']}"
+                )
         print("Database schema initialized")
     except Exception as e:
         if settings.auth_disabled or settings.demo_mode:
@@ -38,6 +56,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    from app.services.rag_dependencies import shutdown_task_runner
+    await shutdown_task_runner()
     await close_database()
     print("Shutting down Bid Master API")
 
@@ -107,6 +127,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(api_keys.router, prefix="/api")
 app.include_router(logs.router, prefix="/api")
 app.include_router(cli_auth.router, prefix="/api")
+app.include_router(knowledge_bases.router, prefix="/api")
 
 
 # ── Request logging middleware ────────────────────────────────

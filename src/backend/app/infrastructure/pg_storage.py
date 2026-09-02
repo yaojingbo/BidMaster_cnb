@@ -106,12 +106,16 @@ async def add_file(record: dict, user_id: Optional[str] = None, encrypted_conten
         record["user_id"] = user_id
     db = await get_database()
     await db.execute(
-        """INSERT INTO files (id, original_name, path, size, type, user_id, encrypted_content, file_hash, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """INSERT INTO files
+           (id, original_name, path, size, type, user_id, encrypted_content, file_hash,
+            parent_file_id, archive_entry_path, managed_by, visibility, metadata, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14)
            ON CONFLICT (id) DO NOTHING""",
         record["id"], record.get("original_name", ""), record.get("path", ""),
         record.get("size", 0), record.get("type"), record.get("user_id"),
-        encrypted_content, record.get("file_hash"),
+        encrypted_content, record.get("file_hash"), record.get("parent_file_id"),
+        record.get("archive_entry_path"), record.get("managed_by"),
+        record.get("visibility", "normal"), json.dumps(record.get("metadata", {}), ensure_ascii=False),
         _to_dt(record.get("created_at", _now())),
     )
     return record
@@ -119,7 +123,7 @@ async def add_file(record: dict, user_id: Optional[str] = None, encrypted_conten
 
 async def list_files(page: int = 1, page_size: int = 20, file_type: Optional[str] = None, user_id: Optional[str] = None) -> dict:
     db = await get_database()
-    base = "WHERE user_id = $1"
+    base = "WHERE user_id = $1 AND COALESCE(visibility, 'normal') = 'normal'"
     args = [user_id]
     if file_type:
         base += " AND type = $2"

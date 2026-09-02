@@ -73,7 +73,7 @@ class LiteLLMService:
                 if encrypted:
                     from app.services.encryption_service import get_encryption_service
                     key = get_encryption_service().decrypt(encrypted.encode()).decode().strip()
-                    logger.info("使用用户存储的 %s API Key: %s...%s", provider, key[:6], key[-4:] if len(key) > 10 else "")
+                    logger.info("使用用户存储的 %s API Key", provider)
                     return key
             except Exception as e:
                 logger.warning("解密 %s API Key 失败（user_id=%s）: %s，将回退到环境变量", provider, user_id, e)

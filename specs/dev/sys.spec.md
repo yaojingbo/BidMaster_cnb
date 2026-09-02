@@ -23,10 +23,11 @@
 - 分层设计确保关注点分离，便于开发和维护
 
 **Deployment:**
-- 主生产：腾讯云服务器（Next.js 15 + FastAPI，由 systemd 管理）
-- 数据库：PostgreSQL
+- 主生产：腾讯云服务器（Next.js 15、FastAPI 和独立 Node.js/Mastra RAG 服务，由 systemd 管理）
+- 数据库：PostgreSQL/Neon
+- 向量索引：Zilliz Cloud/Milvus（仅由 RAG 服务访问）
 - 主代码仓库：CNB
-- LLM 封装：LiteLLM
+- 既有业务 LLM 封装：LiteLLM；RAG Embedding 与 Mastra 运行时在独立 Node 服务中
 
 ### 1.2 System Diagram
 
@@ -53,7 +54,12 @@
 │  │  │  (upload/   │  │  API        │  │  API        │    │   │
 │  │  │   download) │  │  (SSE)      │  │  (provider   │    │   │
 │  │  └─────────────┘  └─────────────┘  │   config)   │    │   │
-│  │                                     └─────────────┘    │   │
+│  │          │                          └─────────────┘    │   │
+│  │          ▼                                             │   │
+│  │  ┌─────────────────────────────────────────────────┐   │   │
+│  │  │       Independent Node.js/Mastra RAG Service      │   │   │
+│  │  │       (knowledge index, retrieval, citation QA)  │   │   │
+│  │  └─────────────────────────────────────────────────┘   │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │            ┌─────────────────┼─────────────────┐                │
@@ -83,6 +89,7 @@
 |-----------|----------------|------------|
 | File Management | 文件上传、存储、下载 | `/api/files/*` |
 | Document Analysis | 要素提取、文档转换 | `/api/extract/*` |
+| RAG Service | 知识库索引、检索、引用问答 | `/api/knowledge/*`（经 FastAPI 网关） |
 | AI Gateway | 多供应商路由、LLM 调用 | `/api/ai/*` |
 | Statistics | 开标数据分析、计算 | `/api/statistics/*` |
 | Settings | AI 供应商配置管理 | `/api/settings/*` |
