@@ -6,6 +6,7 @@
 #
 # 注意：CNB 默认构建环境（default-build-env）不含 Python/Node，
 #       需给每个 stage 显式指定语言镜像（image: python:3.12 / node:20）。
+# 缓存：docker.volumes 挂载 pip/npm/node_modules，首次运行填充缓存，之后复用加速。
 #
 # 部署密钥：来自 CNB「密钥仓库」bidmaster-secrets 的 deploy.yml（imports 注入 COOLIFY_DEPLOY_WEBHOOK）
 # 若密钥仓库名不是 bidmaster-secrets，请改下面 imports 的地址。
@@ -13,6 +14,10 @@
 main:
   pull_request:
     - name: pr-check
+      volumes:
+        - /root/.cache/pip:copy-on-write
+        - /root/.npm:copy-on-write
+        - node_modules:copy-on-write
       stages:
         - name: 后端单元测试
           image: python:3.12
@@ -29,6 +34,10 @@ main:
     - name: build-and-deploy
       imports:
         - https://cnb.cool/yaojingbo-2026/bidmaster-secrets/-/blob/main/deploy.yml
+      volumes:
+        - /root/.cache/pip:copy-on-write
+        - /root/.npm:copy-on-write
+        - node_modules:copy-on-write
       stages:
         - name: 后端单元测试
           image: python:3.12
