@@ -1,45 +1,45 @@
 # CNB 云原生构建 · Bid Master Web CI/CD
 #
 # 结构：分支名 → 事件(push/pull_request) → 流水线(stages)
-# 触发规则：
-#   - pull_request：PR 到 main 时跑测试（作为合并门禁）
-#   - push：合并到 main 后跑测试 + 前端构建 + 触发 Coolify 部署
+#   pull_request：PR 到 main 跑测试（合并门禁）
+#   push：合并到 main 后测试 + 前端构建 + 触发 Coolify 部署
 #
-# 部署密钥接入（需在 CNB 配置，见交付说明）：
-#   在 CNB「密钥仓库」建一个文件，内容 `COOLIFY_DEPLOY_WEBHOOK: <Coolify 部署 webhook URL>`
-#   然后在本文件 main.push 流水线顶部加一行：`imports: <该密钥文件的地址>`
-#   未配置时部署阶段会打印警告并跳过，不会把 CI 搞挂。
+# 注意：CNB 默认构建环境（default-build-env）不含 Python/Node，
+#       需给每个 stage 显式指定语言镜像（image: python:3.12 / node:20）。
+#
+# 部署密钥：来自 CNB「密钥仓库」bidmaster-secrets 的 deploy.yml（imports 注入 COOLIFY_DEPLOY_WEBHOOK）
+# 若密钥仓库名不是 bidmaster-secrets，请改下面 imports 的地址。
 
 main:
   pull_request:
     - name: pr-check
       stages:
         - name: 后端单元测试
+          image: python:3.12
           script: |
-            cd src/backend
-            python3 -m pip install -r requirements.txt -q
-            PYTHONPATH=. python3 -m pytest tests/unit -q
+            python -m pip install -r src/backend/requirements.txt -q
+            PYTHONPATH=src/backend python -m pytest --import-mode=importlib src/backend/tests/unit -q
         - name: 前端类型检查
+          image: node:20
           script: |
             npm ci
             npm run type-check
 
   push:
     - name: build-and-deploy
+      imports:
+        - https://cnb.cool/yaojingbo-2026/bidmaster-secrets/-/blob/main/deploy.yml
       stages:
         - name: 后端单元测试
+          image: python:3.12
           script: |
-            cd src/backend
-            python3 -m pip install -r requirements.txt -q
-            PYTHONPATH=. python3 -m pytest tests/unit -q
+            python -m pip install -r src/backend/requirements.txt -q
+            PYTHONPATH=src/backend python -m pytest --import-mode=importlib src/backend/tests/unit -q
         - name: 前端生产构建
+          image: node:20
           script: |
             npm ci
             npm run build
         - name: 触发部署
           script: |
-            if [ -z "$COOLIFY_DEPLOY_WEBHOOK" ]; then
-              echo "⚠️ COOLIFY_DEPLOY_WEBHOOK 未配置，跳过部署"
-            else
-              curl -fsS -X POST "$COOLIFY_DEPLOY_WEBHOOK"
-            fi
+            curl -fsS -X POST "$COOLIFY_DEPLOY_WEBHOOK"
