@@ -25,7 +25,11 @@ main:
             # CI 只跑单测，跳过 OCR/文档转换的重型依赖（paddle*、markitdown→onnxruntime 合计数百 MB，
             # 且跨构建节点无 pip 缓存 → 静默安装易触发无输出超时）；这些路径单测不依赖或有 guarded import 兜底
             grep -viE '^(paddlepaddle|paddleocr|markitdown)' src/backend/requirements.txt > /tmp/req-ci.txt
-            python -m pip install -r /tmp/req-ci.txt -i https://mirrors.aliyun.com/pypi/simple/ --retries 3 --timeout 60
+            # 方案2：优先用 uv 装（比 pip 快 10~100x、抗慢镜像源）；
+            # 方案1 兜底：uv 不可用则回退到 -v 逐行输出的 pip，保证有输出不被「无输出」看门狗杀
+            pip install -v uv -i https://mirrors.aliyun.com/pypi/simple/ --retries 3 --timeout 120 \
+              && uv pip install --system -r /tmp/req-ci.txt --index-url https://mirrors.aliyun.com/pypi/simple/ \
+              || python -m pip install -v -r /tmp/req-ci.txt -i https://mirrors.aliyun.com/pypi/simple/ --retries 3 --timeout 120
             PYTHONPATH=src/backend python -m pytest --import-mode=importlib src/backend/tests/unit -q
         - name: 前端类型检查
           image: node:20
@@ -48,7 +52,11 @@ main:
             # CI 只跑单测，跳过 OCR/文档转换的重型依赖（paddle*、markitdown→onnxruntime 合计数百 MB，
             # 且跨构建节点无 pip 缓存 → 静默安装易触发无输出超时）；这些路径单测不依赖或有 guarded import 兜底
             grep -viE '^(paddlepaddle|paddleocr|markitdown)' src/backend/requirements.txt > /tmp/req-ci.txt
-            python -m pip install -r /tmp/req-ci.txt -i https://mirrors.aliyun.com/pypi/simple/ --retries 3 --timeout 60
+            # 方案2：优先用 uv 装（比 pip 快 10~100x、抗慢镜像源）；
+            # 方案1 兜底：uv 不可用则回退到 -v 逐行输出的 pip，保证有输出不被「无输出」看门狗杀
+            pip install -v uv -i https://mirrors.aliyun.com/pypi/simple/ --retries 3 --timeout 120 \
+              && uv pip install --system -r /tmp/req-ci.txt --index-url https://mirrors.aliyun.com/pypi/simple/ \
+              || python -m pip install -v -r /tmp/req-ci.txt -i https://mirrors.aliyun.com/pypi/simple/ --retries 3 --timeout 120
             PYTHONPATH=src/backend python -m pytest --import-mode=importlib src/backend/tests/unit -q
         - name: 前端生产构建
           image: node:20
