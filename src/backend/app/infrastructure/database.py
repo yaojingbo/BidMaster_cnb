@@ -40,6 +40,12 @@ class Database:
         self._pool: asyncpg.Pool | None = None
         self._connect_lock = asyncio.Lock()
         self._shutdown = False
+        self._vector_codec_error: str | None = None
+
+    @property
+    def vector_codec_error(self) -> str | None:
+        """pgvector 编解码器注册失败的原因；None 表示注册成功。"""
+        return self._vector_codec_error
 
     async def _create_pool(self) -> asyncpg.Pool:
         kwargs: dict = {"min_size": 0, "max_size": 10, "max_inactive_connection_lifetime": 120}
@@ -49,9 +55,18 @@ class Database:
             async def init_connection(conn: asyncpg.Connection) -> None:
                 try:
                     await register_vector(conn)
-                except (asyncpg.UndefinedObjectError, asyncpg.UndefinedFunctionError):
-                    # 知识库关闭或扩展尚未安装时，核心业务仍可使用数据库连接。
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    # 这里不能只捕 UndefinedObjectError/UndefinedFunctionError：库中尚未安装 pgvector
+                    # 扩展时 asyncpg 抛的是 ValueError("unknown type: public.vector")，且该异常类型跨版本
+                    # 不稳定。扩展缺失属于可降级场景——核心业务仍需用这条连接，知识库能力检查
+                    # （db_schema.init_schema）会在就绪状态里给出准确原因——但必须留下名字，不许静默。
+                    first_failure = self._vector_codec_error is None
+                    self._vector_codec_error = f"{type(exc).__name__}: {exc}"
+                    if first_failure:
+                        print(
+                            f"WARN: pgvector 编解码器注册失败（{self._vector_codec_error}）；"
+                            "核心业务继续启动，知识库/RAG 就绪检查将报告该原因"
+                        )
 
             kwargs["init"] = init_connection
         except ImportError:

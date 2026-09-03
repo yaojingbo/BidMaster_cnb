@@ -3,7 +3,7 @@
 > 开工先读 `CLAUDE.md` + **`.42cog/` 四份** + 本文件 + `state/memory/MEMORY.md`。
 > **非轮规则：每轮有效工作必更新本文件**（倒序追加，新的在上）。
 
-## 2026-09-03 · CNB CI/CD 端到端排障（多轮，全走 MR）【已闭环 · 22:14:43 部署完成】
+## 2026-09-03 · CNB CI/CD 端到端排障（多轮，全走 MR）【构建链已闭环；生产后端崩溃已定位并本地修复，待合并上线】
 
 CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→服务器 git pull + docker compose build。
 本轮逐个击破（每个一个分支+MR）：
@@ -25,13 +25,44 @@ CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→�
 - CI 过滤只作用于 CI：生产日志可见 paddlepaddle/paddleocr/markitdown/onnxruntime 全装，线上功能不减
 - 耗时构成：CI 约 6-8 min + 服务器构建约 7 min；其中新瓶颈是镜像 export/unpack（后端 110+31s、前端 81+16s，因 paddle 镜像体积大），下次 pip 层命中缓存后服务器侧约 2-3 min
 
+### 追加（09-03 夜 → 09-04）：部署后 backend 进入崩溃重启循环
+
+22:14 那次「部署完成」只是构建与换容器成功，运行时没活：`docker ps` 显示
+`backend-… Restarting (3)`，未带 token 打 `/api/auth/me` 得 502（上游无监听）。**我当时把它说成「闭环」，是错的**——
+已在 `docs/reviews/2026-09-03-cicd-retrospective.md` 立规约：任何「完成/已上线」结论必须附一条运行时证据，构建日志不算证据。
+
+根因（本地空库复现取得证据，非推测）：
+- `a49a48a`（09-02 22:07）把 `register_vector` 挂进了 `_create_pool` 的建池回调，本次部署是该代码**首次**在生产运行。
+- 库中未安装 vector 扩展时，asyncpg 抛的是 `ValueError: unknown type: public.vector`，**不是**
+  `UndefinedObjectError`/`UndefinedFunctionError`；旧代码只捕后两类 → 异常逃逸 → `create_pool` 失败 →
+  lifespan 里 `init_schema` 的 except 分支因生产 `AUTH_DISABLED=false` 走 `raise` → 进程退出 → 循环。
+- **09-02 记录的「`DO $$` 语法错误」归因是错的**：`db.execute()` 无参走简单查询协议，多语句与 `DO $` 块均正常。
+  本地跑 `init_schema` 建出 18 张表、二次执行幂等。已作废该结论。
+
+修复（`fix/db-pool-init-vector-codec`）：`database.py` 建池回调改为捕 `Exception`、降级不崩，并把原因存
+`db.vector_codec_error` 供知识库/RAG 就绪检查报告；配 3 条回归测试（改前必红、改后全绿）。
+证据：空库冷启动不再抛异常，仅打印 `WARN: pgvector 编解码器注册失败（ValueError: unknown type: public.vector）`；单测 133 passed。
+
+本轮交付的其他三项（`chore/deploy-hardening`）：
+- `docs/reviews/2026-09-03-cicd-retrospective.md`：14 现象 → 5 类根因（A 镜像源拓扑 / B 构建环境三处不一致 /
+  C 静默失败 / D 生产状态漂移未入库 / E 从未验证进程能启动）→ 元根因：缺「已自证的不可变产物」边界，环境契约没入库。
+- `scripts/deploy-bidmaster.sh`：部署脚本收编进仓库（此前只存在于生产机，即 D 类）。fast-forward-only + 已跟踪文件脏即拒部署、
+  镜像打 SHA 不可变 tag、启动健康门 + 失败自动回滚 PREV_SHA + 取证日志。bash 桩测 8/8；过程中抓到并修掉真 bug：
+  `$SHA` 紧跟全角标点在 `set -u` 下被并入变量名，脚本恰好死在「部署完成」那一行。
+- `docs/deployment/credential-rotation-runbook.md` + `.env.example` 占位：凭据轮换手册（含 webhook 密钥「新旧同时接受」的零窗口顺序）。
+
+GitHub 镜像已处置：孤儿根提交 `d14dcc5` 用 bundle 封存于 `~/1.Mynote/_backups/github-orphan-d14dcc5.bundle`，
+随后 `push -f` 使 GitHub 成为单向镜像，两 remote 现同为 `04a83fc`。
+
 待办：
-- ⚠️ **轮换已外泄凭据**：CNB token（对话中明文出现过）+ Coolify webhook token（`1a37…`）
-- ⚠️ `deploy-bidmaster.sh` 里 CNB 明文 token → 改 Deploy Key
-- 线上人肉验收：`/docs` 可访问、`/statistics` 评标基准价按规则重算、未带 token 访问 `/api/auth/me` 应 401（确认本地 `AUTH_DISABLED` 试验开关没渗到生产）
-- GitHub 镜像(origin) 已分叉滞后，未处理
-- 生产健康接口 git.commit=unknown（镜像没带 .git，回滚靠 CNB/Coolify 记录）
+- ⚠️ **合并 `fix/db-pool-init-vector-codec` 并确认容器不再 Restarting**（`docker ps` 无 Restarting + `/api/auth/me` 返回 401 而非 502）
+- ⚠️ 确认生产库是否装了 pgvector 扩展：装了则知识库可用；没装则应用现在能起、但 `/knowledge` 类功能会在就绪检查里报上述原因
+- ⚠️ 按 runbook 执行凭据整改：第 1 节 webhook 密钥、第 2 节 Deploy Key（需服务器 + CNB 后台，仅本人可操作）、第 3 节作废 CNB token
+- ⚠️ 生产机换上 `scripts/deploy-bidmaster.sh`（runbook 第 2 节 ⑤）——健康门 + 自动回滚今天就地生效，本次这类崩溃会被自动退回旧镜像
+- 线上人肉验收：`/docs` 可访问、`/statistics` 评标基准价按旧数据需重算
+- 生产健康接口 git.commit=unknown → 新脚本打 SHA tag 后由镜像 tag 承担定位；构建期注入 SHA 尚未做
 - 阶段 B 可选：CI 直接构建镜像推仓库→服务器只 `pull && up -d`，彻底摆脱服务器侧慢构建
+- 可选 CI 加固：构建后加一步 `python -c "import app.main"`（本次未纳入，因缺生产口径 DATABASE_URL，验证不足不塞进热修）
 - 本地 `.env.local:10 NEXT_PUBLIC_AUTH_DISABLED=true`、`src/backend/.env:22 AUTH_DISABLED=true` 为绕登录测试所加，需再测鉴权时记得关掉
 
 ## 2026-09-02 · CI/CD 已接入（CNB 云原生构建 + Coolify webhook）
