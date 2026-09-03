@@ -3,6 +3,37 @@
 > 开工先读 `CLAUDE.md` + **`.42cog/` 四份** + 本文件 + `state/memory/MEMORY.md`。
 > **非轮规则：每轮有效工作必更新本文件**（倒序追加，新的在上）。
 
+## 2026-09-03 · CNB CI/CD 端到端排障（多轮，全走 MR）【已闭环 · 22:14:43 部署完成】
+
+CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→服务器 git pull + docker compose build。
+本轮逐个击破（每个一个分支+MR）：
+1. `e3af35d` CI 脚本 + make branch/publish
+2. `17d9572` python3 缺失 → stage 指定 python:3.12/node:20 镜像
+3. `0398639` docker.volumes 依赖缓存
+4. `38d7219`/`90281f9` 国内镜像源（npmmirror；pip 阿里云，清华曾 403）
+5. `4c253b3` tsconfig 排除 src/rag-service（前端 next build 误扫 RAG 服务）
+6. `5740f01` Dockerfile Debian 源→腾讯云（apt-get 卡 96 分钟解决）
+7. `96b371d` typst 下载 http1.1+重试+镜像链，且失败不阻塞构建
+8. `aba17e1` CI 过滤 paddlepaddle/paddleocr（数百MB、跨节点无pip缓存→10分钟无输出被杀）；本地无paddle验证 130 测试 4.8s 通过
+9. `f996c09`/`a0e3583` CI 再过滤 markitdown（连带 onnxruntime）+ 改用 uv 装依赖，保留 `-v pip` 兜底防静默
+10. `1418268` 补 `Dockerfile.frontend`、`.dockerignore` 补 resources/src/rag-service
+11. `cab1980` 生产 Dockerfile pip 源 阿里云→`mirrors.cloud.tencent.com`：同机房 **274.7 MB/s**（跨厂商仅 ~100KB/s，几百MB 要 80 分钟）
+12. `04a83fc` `.dockerignore` `docs`→`docs/*`+`!docs/QUICKSTART.md`：`/docs` 页 build 期静态预渲染 fs 读该文件，被排除则 next build 以 ENOENT 退出 1；另在 Dockerfile.frontend 加显式 COPY 断言使同类问题 <1s 定位。**教训：CI 绿 ≠ 镜像构建绿**（CI 检完整仓库，只有 Docker 受 .dockerignore 影响）
+
+已验证结论：
+- 服务器 22:14:43 `部署完成`，backend/frontend 两容器 Recreated→Started；全量含 paddle 的生产镜像构建通过
+- CI 过滤只作用于 CI：生产日志可见 paddlepaddle/paddleocr/markitdown/onnxruntime 全装，线上功能不减
+- 耗时构成：CI 约 6-8 min + 服务器构建约 7 min；其中新瓶颈是镜像 export/unpack（后端 110+31s、前端 81+16s，因 paddle 镜像体积大），下次 pip 层命中缓存后服务器侧约 2-3 min
+
+待办：
+- ⚠️ **轮换已外泄凭据**：CNB token（对话中明文出现过）+ Coolify webhook token（`1a37…`）
+- ⚠️ `deploy-bidmaster.sh` 里 CNB 明文 token → 改 Deploy Key
+- 线上人肉验收：`/docs` 可访问、`/statistics` 评标基准价按规则重算、未带 token 访问 `/api/auth/me` 应 401（确认本地 `AUTH_DISABLED` 试验开关没渗到生产）
+- GitHub 镜像(origin) 已分叉滞后，未处理
+- 生产健康接口 git.commit=unknown（镜像没带 .git，回滚靠 CNB/Coolify 记录）
+- 阶段 B 可选：CI 直接构建镜像推仓库→服务器只 `pull && up -d`，彻底摆脱服务器侧慢构建
+- 本地 `.env.local:10 NEXT_PUBLIC_AUTH_DISABLED=true`、`src/backend/.env:22 AUTH_DISABLED=true` 为绕登录测试所加，需再测鉴权时记得关掉
+
 ## 2026-09-02 · CI/CD 已接入（CNB 云原生构建 + Coolify webhook）
 
 - 提交 `e3af35d`（chore: 接入 CNB CI 与分支发布脚本）已推 CNB，main 与 cnb/main 同步。
