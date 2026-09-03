@@ -53,3 +53,36 @@ async def test_resource_request_returns_none_when_feature_disabled(monkeypatch):
     )
 
     assert response is None
+
+
+@pytest.mark.asyncio
+async def test_rag_query_proxies_to_rag_service(monkeypatch):
+    async def fake_resource_request(method, path, user_id, *, payload=None, params=None):
+        assert method == "POST"
+        assert path == "/internal/v1/rag/query"
+        assert user_id == "user-1"
+        assert payload == {"question": "台州市招标文件规律"}
+        return {"success": True, "data": {"answer": "回答", "sources": []}}
+
+    monkeypatch.setattr(knowledge_bases, "_resource_request", fake_resource_request)
+
+    response = await knowledge_bases.rag_query(
+        knowledge_bases.RagQueryRequest(question="台州市招标文件规律"),
+        {"id": "user-1"},
+    )
+
+    assert response == {"success": True, "data": {"answer": "回答", "sources": []}}
+
+
+@pytest.mark.asyncio
+async def test_rag_query_rejects_invalid_response(monkeypatch):
+    async def fake_resource_request(*args, **kwargs):
+        return {"success": True, "data": None}
+
+    monkeypatch.setattr(knowledge_bases, "_resource_request", fake_resource_request)
+
+    with pytest.raises(knowledge_bases.AppError):
+        await knowledge_bases.rag_query(
+            knowledge_bases.RagQueryRequest(question="问题"),
+            {"id": "user-1"},
+        )

@@ -8,6 +8,7 @@ import {
 } from 'node:http';
 import type { KnowledgeBaseHttpController } from './knowledge-base-controller.js';
 import { KnowledgeBaseHttpError } from './knowledge-base-controller.js';
+import type { RagHttpController } from './rag-http.js';
 import type { VectorStore } from './vector-store.js';
 
 const LIVE_PATH = '/internal/v1/health/live';
@@ -16,11 +17,14 @@ const KNOWLEDGE_BASES_PATH = '/internal/v1/knowledge-bases';
 const USER_ID = 'x-authenticated-user-id';
 const REQUEST_ID = 'x-request-id';
 const MAX_JSON_BYTES = 64 * 1024;
+const RAG_QUERY_PATH = '/internal/v1/rag/query';
+const RAG_INDEX_PATH = '/internal/v1/rag/index';
 
 export type ReadinessReport = Record<string, boolean>;
 export type ServiceDependencies = {
   vectorStore: VectorStore;
   knowledgeBases?: KnowledgeBaseHttpController;
+  rag?: RagHttpController;
   readiness?: () => ReadinessReport | Promise<ReadinessReport>;
 };
 export type ServerOptions = ServiceDependencies & { token: string };
@@ -54,6 +58,10 @@ export function createHttpServer(options: ServerOptions): Server {
           userId,
           options.knowledgeBases,
         );
+        if (handled) return;
+      }
+      if (options.rag) {
+        const handled = await handleRagRoute(request, response, url, requestId, userId, options.rag);
         if (handled) return;
       }
       return sendJson(response, 404, errorBody('NOT_FOUND', '请求路径不存在', requestId, false));
@@ -109,6 +117,25 @@ async function handleKnowledgeBaseRoute(
       message: '知识库已删除，原始文件保持不变',
       request_id: requestId,
     });
+    return true;
+  }
+  return false;
+}
+
+async function handleRagRoute(
+  request: IncomingMessage,
+  response: ServerResponse,
+  url: URL,
+  requestId: string,
+  userId: string,
+  controller: RagHttpController,
+): Promise<boolean> {
+  if (url.pathname === RAG_QUERY_PATH && request.method === 'POST') {
+    sendJson(response, 200, successBody(await controller.query(await readJson(request)), requestId));
+    return true;
+  }
+  if (url.pathname === RAG_INDEX_PATH && request.method === 'POST') {
+    sendJson(response, 200, successBody(await controller.index(userId, await readJson(request)), requestId));
     return true;
   }
   return false;

@@ -2,13 +2,13 @@
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { BookOpen, Loader2, Plus, Search, Trash2 } from 'lucide-react';
+import { BookOpen, Loader2, Plus, Search, Send, Trash2 } from 'lucide-react';
 import { WorkbenchLayout } from '@/components/layout/WorkbenchLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { createKnowledgeBase, deleteKnowledgeBase, listKnowledgeBases } from '@/lib/knowledge-api';
+import { createKnowledgeBase, deleteKnowledgeBase, listKnowledgeBases, queryRag } from '@/lib/knowledge-api';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import type { KnowledgeBaseSummary } from '@/types/knowledge';
 
@@ -21,6 +21,9 @@ export default function KnowledgePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [question, setQuestion] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [asking, setAsking] = useState(false);
 
   const load = useCallback(async () => {
     if (!requireAuth('/knowledge')) return;
@@ -59,10 +62,42 @@ export default function KnowledgePage() {
     await load();
   }
 
+  async function ask(event: FormEvent) {
+    event.preventDefault();
+    if (!question.trim() || asking) return;
+    setAsking(true);
+    setAnswer('');
+    try {
+      const result = await queryRag(question.trim());
+      setAnswer(result.answer);
+      setError('');
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+    } finally {
+      setAsking(false);
+    }
+  }
+
   return (
     <WorkbenchLayout>
       <div className="space-y-6 pb-12">
         <PageHeader title="知识库" description="组织招投标资料，建立索引并进行带引用的多文件问答。" />
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">知识库问答</CardTitle>
+            <CardDescription>基于已索引的招投标文档进行语义问答。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={ask} className="flex gap-2">
+              <Input value={question} onChange={event => setQuestion(event.target.value)} placeholder="例如：台州市招标文件规律" maxLength={2000} />
+              <Button type="submit" disabled={!question.trim() || asking}>
+                {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} 提问
+              </Button>
+            </form>
+            {answer && <div className="mt-4 whitespace-pre-wrap rounded-lg border p-3 text-sm">{answer}</div>}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

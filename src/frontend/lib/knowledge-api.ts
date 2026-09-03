@@ -143,3 +143,15 @@ export async function streamKnowledgeQuery(
   }
   return response;
 }
+
+/** 直接调用独立 RAG 服务（Mastra + Milvus）做语义问答，返回 { answer, sources }。 */
+export async function queryRag(question: string): Promise<{
+  answer: string;
+  sources: Array<{ id: string; score: number; text: string }>;
+}> {
+  return knowledgeFetch('knowledge-bases/rag/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question }),
+  });
+}

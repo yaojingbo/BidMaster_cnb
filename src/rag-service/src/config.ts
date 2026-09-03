@@ -7,12 +7,18 @@ const environmentSchema = z.object({
   RAG_DATABASE_URL: z.string().min(1).optional(),
   DASHSCOPE_API_KEY: z.string().min(1).optional(),
   DASHSCOPE_EMBEDDING_BASE_URL: z.string().url().optional(),
-  RAG_EMBEDDING_MODEL: z.string().default('qwen3-vl-embedding'),
+  RAG_EMBEDDING_MODEL: z.string().default('text-embedding-v4'),
   RAG_EMBEDDING_DIMENSION: z.coerce.number().int().positive().optional(),
-  RAG_INDEX_VERSION: z.string().default('v3-qwen3-vl-embedding'),
+  RAG_INDEX_VERSION: z.string().default('v3_text_embedding_v4'),
   RAG_VECTOR_COLLECTION: z.string().default('bidmaster_rag_chunks'),
-  ZILLIZ_ADDRESS: z.string().min(1).optional(),
+  ZILLIZ_URI: z.string().min(1).optional(),
+  ZILLIZ_USERNAME: z.string().min(1).optional(),
+  ZILLIZ_PASSWORD: z.string().min(1).optional(),
   ZILLIZ_TOKEN: z.string().min(1).optional(),
+  ZILLIZ_DB_NAME: z.string().min(1).optional(),
+  ZILLIZ_TRANSPORT: z.enum(['grpc', 'rest']).default('grpc'),
+  RAG_LLM_MODEL: z.string().default('qwen-plus'),
+  RAG_DATA_DIR: z.string().min(1).optional(),
 });
 
 export type RagConfig = z.infer<typeof environmentSchema>;
@@ -27,9 +33,9 @@ export function readinessFromConfig(config: RagConfig): Record<string, boolean> 
     embedding: Boolean(
       config.DASHSCOPE_API_KEY
       && config.DASHSCOPE_EMBEDDING_BASE_URL
-      && config.RAG_EMBEDDING_MODEL === 'qwen3-vl-embedding'
+      && config.RAG_EMBEDDING_MODEL === 'text-embedding-v4'
       && config.RAG_EMBEDDING_DIMENSION,
     ),
-    zilliz: Boolean(config.ZILLIZ_ADDRESS && config.ZILLIZ_TOKEN && config.RAG_VECTOR_COLLECTION),
+    zilliz: Boolean(config.ZILLIZ_URI && (config.ZILLIZ_TOKEN || (config.ZILLIZ_USERNAME && config.ZILLIZ_PASSWORD)) && config.RAG_VECTOR_COLLECTION),
   };
 }

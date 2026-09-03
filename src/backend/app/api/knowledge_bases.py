@@ -58,6 +58,20 @@ async def _resource_request(
     return await client.request(method, path, user_id, json=payload, params=params)
 
 
+@router.post("/rag/query")
+async def rag_query(payload: RagQueryRequest, user: dict = Depends(get_current_user)):
+    """直接调用独立 RAG 服务的语义问答（Mastra + Milvus），返回 { answer, sources }。"""
+    response = await _resource_request(
+        "POST",
+        "/internal/v1/rag/query",
+        user["id"],
+        payload={"question": payload.question},
+    )
+    if not response or not isinstance(response, dict) or not response.get("data"):
+        raise AppError("知识库服务返回无效响应", 502, "RAG_RESPONSE_INVALID")
+    return {"success": True, "data": response["data"]}
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_knowledge_base(payload: KnowledgeBaseCreate, user: dict = Depends(get_current_user)):
     response = await _resource_request(
