@@ -68,8 +68,8 @@ RUN set -eux; \
     rm -rf /tmp/typst*
 
 COPY src/backend/requirements.txt /app/requirements.txt
-RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
-    && pip config set global.trusted-host mirrors.aliyun.com \
+RUN pip config set global.index-url https://mirrors.cloud.tencent.com/pypi/simple/ \
+    && pip config set global.trusted-host mirrors.cloud.tencent.com \
     && pip install --upgrade pip \
     && pip install -r /app/requirements.txt \
     && pip install ocrmypdf
