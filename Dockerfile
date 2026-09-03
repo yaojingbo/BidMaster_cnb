@@ -12,7 +12,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update \
+# 切换 Debian 源为腾讯云镜像（trixie 用 DEB822 格式，两个路径都兜底），
+# 避免服务器访问 deb.debian.org 过慢导致 apt-get install 卡死
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's|deb.debian.org|mirrors.cloud.tencent.com|g' /etc/apt/sources.list.d/debian.sources; \
+    fi; \
+    if [ -f /etc/apt/sources.list ]; then \
+        sed -i 's|deb.debian.org|mirrors.cloud.tencent.com|g' /etc/apt/sources.list; \
+    fi; \
+    apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
@@ -40,7 +49,10 @@ RUN set -eux; \
       arm64) typst_arch="aarch64-unknown-linux-musl" ;; \
       *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${typst_arch}.tar.xz" -o /tmp/typst.tar.xz; \
+    typst_url="https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${typst_arch}.tar.xz"; \
+    curl -fsSL "https://ghproxy.net/${typst_url}" -o /tmp/typst.tar.xz \
+      || curl -fsSL "https://mirror.ghproxy.com/${typst_url}" -o /tmp/typst.tar.xz \
+      || curl -fsSL "${typst_url}" -o /tmp/typst.tar.xz; \
     tar -xf /tmp/typst.tar.xz -C /tmp; \
     cp "/tmp/typst-${typst_arch}/typst" /usr/local/bin/typst; \
     chmod +x /usr/local/bin/typst; \
@@ -48,7 +60,9 @@ RUN set -eux; \
     typst --version
 
 COPY src/backend/requirements.txt /app/requirements.txt
-RUN pip install --upgrade pip \
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
+    && pip config set global.trusted-host mirrors.aliyun.com \
+    && pip install --upgrade pip \
     && pip install -r /app/requirements.txt \
     && pip install ocrmypdf
 
