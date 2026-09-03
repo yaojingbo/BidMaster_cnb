@@ -12,6 +12,11 @@ RUN npm ci
 
 # 再拷源码并构建（tsconfig 已排除 src/rag-service，next build 的 tsc 不会误扫独立服务）
 COPY . .
+
+# 显式断言：/docs 页 build 期需 fs 读 docs/QUICKSTART.md（.dockerignore 以 docs/* + ! 精细放行）。
+# 若该反排除失效，这一步 <1s 即报错并直指 .dockerignore，而不是等 next build 跑满 60s 才抛 ENOENT。
+COPY docs/QUICKSTART.md ./docs/QUICKSTART.md
+
 RUN npm run build
 
 ENV NODE_ENV=production

@@ -20,7 +20,12 @@ resources
 src/rag-service
 notes
 chats
-docs
+# docs 目录整体是个人的笔记/计划/复盘，不进生产镜像；
+# 但 src/app/(main)/docs/page.tsx 在 build 期静态预渲染时会 fs 读 docs/QUICKSTART.md，
+# 缺它则 next build 以 ENOENT 失败，故只单独放行这一个文件。
+# 注意：必须写成 docs/* + !docs/QUICKSTART.md；若直接排除目录 docs，子文件的反排除不生效。
+docs/*
+!docs/QUICKSTART.md
 spec
 tests
 demo
