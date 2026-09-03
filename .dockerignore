@@ -16,6 +16,8 @@ __pycache__
 uploads
 tmp
 resource
+resources
+src/rag-service
 notes
 chats
 docs

@@ -1,0 +1,21 @@
+FROM node:20-slim
+
+WORKDIR /app
+
+# 国内网络：npm 走 npmmirror；禁用 Next 遥测（构建期不联网上报）
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm config set registry https://registry.npmmirror.com
+
+# 先只拷依赖清单装依赖：package-lock 不变则命中镜像层缓存，不重复 npm ci
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# 再拷源码并构建（tsconfig 已排除 src/rag-service，next build 的 tsc 不会误扫独立服务）
+COPY . .
+RUN npm run build
+
+ENV NODE_ENV=production
+EXPOSE 3000
+
+# 与后端一致：host 0.0.0.0，端口取 PORT 默认 3000（Coolify/compose 可注入）
+CMD ["sh", "-c", "npm run start -- -H 0.0.0.0 -p ${PORT:-3000}"]
