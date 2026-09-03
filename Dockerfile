@@ -50,14 +50,22 @@ RUN set -eux; \
       *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     typst_url="https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${typst_arch}.tar.xz"; \
-    curl -fsSL "https://ghproxy.net/${typst_url}" -o /tmp/typst.tar.xz \
-      || curl -fsSL "https://mirror.ghproxy.com/${typst_url}" -o /tmp/typst.tar.xz \
-      || curl -fsSL "${typst_url}" -o /tmp/typst.tar.xz; \
-    tar -xf /tmp/typst.tar.xz -C /tmp; \
-    cp "/tmp/typst-${typst_arch}/typst" /usr/local/bin/typst; \
-    chmod +x /usr/local/bin/typst; \
-    rm -rf /tmp/typst*; \
-    typst --version
+    fetch_typst() { \
+      rm -f /tmp/typst.tar.xz; \
+      curl -fSL --http1.1 --retry 8 --retry-all-errors --retry-delay 2 -C - \
+        --connect-timeout 20 --max-time 300 -o /tmp/typst.tar.xz "$1"; \
+    }; \
+    if fetch_typst "https://gh-proxy.com/${typst_url}" \
+      || fetch_typst "https://ghproxy.net/${typst_url}" \
+      || fetch_typst "${typst_url}"; then \
+      tar -xf /tmp/typst.tar.xz -C /tmp; \
+      cp "/tmp/typst-${typst_arch}/typst" /usr/local/bin/typst; \
+      chmod +x /usr/local/bin/typst; \
+      typst --version; \
+    else \
+      echo "WARN: typst 下载失败，PDF 导出功能将不可用（不阻塞构建，后续单独修复）" >&2; \
+    fi; \
+    rm -rf /tmp/typst*
 
 COPY src/backend/requirements.txt /app/requirements.txt
 RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
