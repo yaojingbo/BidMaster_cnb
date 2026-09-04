@@ -50,6 +50,9 @@ test-backend-rag-postgres:
 test-frontend-unit:
 	npm run test:unit
 
+test-deploy-script:  ## 生产部署脚本桩测：docker/curl 全打桩，只验分支逻辑，不碰真实 docker
+	@bash tests/deployment/deploy-bidmaster-harness.sh scripts/deploy-bidmaster.sh
+
 type-check:
 	npm run type-check
 

@@ -62,8 +62,11 @@ CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→�
 - `docs/reviews/2026-09-03-cicd-retrospective.md`：14 现象 → 5 类根因（A 镜像源拓扑 / B 构建环境三处不一致 /
   C 静默失败 / D 生产状态漂移未入库 / E 从未验证进程能启动）→ 元根因：缺「已自证的不可变产物」边界，环境契约没入库。
 - `scripts/deploy-bidmaster.sh`：部署脚本收编进仓库（此前只存在于生产机，即 D 类）。fast-forward-only + 已跟踪文件脏即拒部署、
-  镜像打 SHA 不可变 tag、启动健康门 + 失败自动回滚 PREV_SHA + 取证日志。bash 桩测 8/8；过程中抓到并修掉真 bug：
-  `$SHA` 紧跟全角标点在 `set -u` 下被并入变量名，脚本恰好死在「部署完成」那一行。
+  镜像打 SHA 不可变 tag、启动健康门 + 失败自动回滚 PREV_SHA + 取证日志。
+  **桩测已固化为 `make test-deploy-script`（12 项，`tests/deployment/deploy-bidmaster-harness.sh`），累计抓到三个真 bug**：
+  ① `$SHA` 紧跟全角标点被并入变量名，脚本恰好死在「部署完成」那行；② 状态文件不存在时 `awk` 退出码 2 触发 `set -e`，
+  **首次部署必失败**；③ 脚本写 12 位短 SHA、回滚点校验要求 40 位，口径不一致会让每次部署都丢掉回滚点 → 统一为完整 SHA。
+  ②③ 都不在成功路径上可见，只有桩测能抓——「只在首次/失败分支触发」正是复盘里 C 类根因本身。
 - `docs/deployment/credential-rotation-runbook.md` + `.env.example` 占位：凭据轮换手册（含 webhook 密钥「新旧同时接受」的零窗口顺序）。
 
 GitHub 镜像已处置：孤儿根提交 `d14dcc5` 用 bundle 封存于 `~/1.Mynote/_backups/github-orphan-d14dcc5.bundle`，

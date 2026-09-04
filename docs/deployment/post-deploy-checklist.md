@@ -21,17 +21,24 @@
 
 - [ ] A2c 分辨「没有 vector 类型」的两种成因（处置完全不同，别直接装扩展）
 
-      # 分辨 ①配置未开启/不匹配 vs ②扩展真没装（只看这几个变量，别 dump DATABASE_URL，里面含口令）
-      docker exec backend-fga7l0ngdi1bx9ikv3dulent sh -c 'env | grep -iE "^KNOWLEDGE_BASE_ENABLED=|^RAG_REQUIRED=|^RAG_EMBEDDING_MODEL=|^RAG_EMBEDDING_DIMENSION="'
-      docker ps --format '{{.Names}}' | grep -iE 'postgres|pgsql'                                  # 取 pg 容器名
-      docker exec <pg容器名> psql -U user -d bidmaster -tc "select extname from pg_extension order by 1"
+  生产拓扑实测（09-04）：后端连的是 **`coolify-db:5432/bid_master`**——Coolify 自带的共享 PG，
+  机器上没有任何名字含 postgres/pgsql 的独立数据库容器，`docker ps` 全文为
+  `frontend-… / backend-… / coolify / coolify-db / coolify-redis / coolify-realtime / coolify-sentinel / coolify-proxy`。
+  所以查扩展一律走 `docker exec coolify-db psql -U postgres -d bid_master`，口令不进聊天。
 
-  - `KNOWLEDGE_BASE_ENABLED` 不为 true，或 model/dimension 不满足首期约束（`text-embedding-v4` / `1024`）
-    → 成因①：`init_schema` 在执行建扩展那条 SQL 之前就 return 了，扩展本来就不会被创建。此时该问的是
-    「生产要不要开知识库」，而不是「怎么装扩展」。
-  - 配置正常而 `pg_extension` 里没有 `vector` → 成因②：数据库角色权限不足或镜像未带扩展包，需
-    `CREATE EXTENSION IF NOT EXISTS vector;`（超级用户执行），**装完必须重启后端容器**——编解码器只在
-    建池回调里注册，不重启不会自愈。
+      # ① 配置侧：知识库开没开、embedding 参数是否满足首期约束
+      docker exec backend-fga7l0ngdi1bx9ikv3dulent env | grep -iE 'KNOWLEDGE_BASE|RAG_REQUIRED|RAG_EMBEDDING_MODEL|RAG_EMBEDDING_DIMENSION'
+
+      # ② 服务端：镜像里到底有没有 pgvector 这个扩展包 + 本库装没装
+      docker exec coolify-db psql -U postgres -d bid_master -tc "select name, default_version, installed_version from pg_available_extensions where name in ('vector','pg_trgm')"
+
+  - ① 不满足（`KNOWLEDGE_BASE_ENABLED` 非 true，或 model/dimension 不是 `text-embedding-v4`/`1024`）→ **成因①**：
+    `init_schema` 在执行建扩展那条 SQL 之前就 return 了，扩展本来就不会被创建。该决定的是「生产要不要开知识库」。
+  - ① 正常而 ② 里 `vector` 的 `installed_version` 为空 → **成因②**：`CREATE EXTENSION IF NOT EXISTS vector;`，
+    然后**必须重启后端容器**（编解码器只在建池回调里注册，不重启不自愈）。
+  - ② 里根本没有 `vector` 这一行 → 第三种成因：**coolify-db 镜像未打包 pgvector 扩展**，`CREATE EXTENSION` 会直接报
+    "extension is not available"。此时改代码/改配置都无解，得给那台 PG 装扩展包或换成带 pgvector 的镜像——
+    这是基础设施变更，风险面完全不同（它同时是 Coolify 自己的库），必须先单独评估。
 
 - [x] A2b 未带 token `curl -s -o /dev/null -w '%{http_code}\n' https://bidmaster.asia/api/auth/me` → **401**（原 502）：
       后端确实在服务请求，且生产鉴权开着、本地 `AUTH_DISABLED` 试验开关没渗进来。
@@ -43,10 +50,14 @@
 ## B. 合第二个 MR（纯文档 + 脚本，不动运行时代码）
 
 - [x] B1 已合并（`d954bc3` 进 main）
-- [ ] B2 等 CI 约 6-8 min + 服务器构建约 2-3 min（pip 层命中缓存时）
-- [ ] B3 验收：`curl -s -o /dev/null -w '%{http_code}\n' https://bidmaster.asia/` 出 200，且 A1 的 inspect 命令仍显示不重启
+- [x] B2 CI + 构建部署已完成（`backend/frontend Up 4 hours`，即 13:07 那次部署至今没重启过）
+- [x] B3 验收：`/api/auth/me` 由 502 变 **401**、`/docs` 200、容器 Up 4h 且 `RestartCount=0`
 
 ## C. 凭据整改（一次做完，之后日常发版不用再碰任何密钥）
+
+> 用户 09-04 明确决定：推迟到本轮功能任务收尾后统一做一次。**可推迟、不可取消**——
+> 明文 token 已外泄过一次，它等价于「谁能读到那个脚本，谁就能推 main → 流水线自动把代码部署进生产」。
+> 另：本机无生产机入口（腾讯云那台强制微信扫码登录，publickey 被拒），故 C 段所有【你·服务器】步骤不可代做。
 
 顺序固定 §2 → §1 → §3，理由：先换成不可读的机制，再轮换旧值，最后作废外泄令牌；
 且 §2 的 ⑤ 要用仓库里的 `scripts/deploy-bidmaster.sh`，必须 B1 已合并。
@@ -61,15 +72,34 @@
 
 - [ ] D1 本地试验开关（下次要测鉴权前必须关）：`.env.local:10` 的 `NEXT_PUBLIC_AUTH_DISABLED=true`、
       `src/backend/.env:22` 的 `AUTH_DISABLED=true`
-- [ ] D2 确认 A2 的结果并回填 `state/board.md` 待办（装了/没装，决定知识库这条线是否还要做事）
-- [ ] D3 改生产机部署脚本的状态文件（**要在 C1 装完新脚本之后做**：旧脚本不读这个文件，
-      提前改会被下一次部署覆写，等于没改）。`/opt/webhookd/scripts/deploy-bidmaster.sh` 第 3 行
-      `STATE_FILE=/var/lib/bidmaster-deploy/last-good` 当前内容仍是 `sha=76cecad…`（2026-08-19），已过时。
-      改成当前实际运行的版本（**用命令取值，别照抄文档里任何硬编码 SHA**）：
+- [x] D2 A2 结果已回填状态板：生产**没有 vector 类型**，成因待 A2c 分辨
+- [ ] D3 校对生产机部署脚本的状态文件（**在 C1 装完新脚本之后看一眼即可，通常不用手改**）：
+      `/var/lib/bidmaster-deploy/last-good` 当前内容仍是 `sha=76cecad…`（2026-08-19），与实际运行版本脱节。
+      新脚本每次成功部署都会自己写这个文件，所以第一次成功部署后它就自动正确了。
+      真正需要人工干预的只有一个窗口——**装完新脚本后首次部署就失败**：此时旧值 `76cecad` 是 7 位短 SHA
+      且旧版从不给镜像打 tag，新脚本会判为「无回滚点」并打 WARN（不会误回滚到 8 月版本），
+      但也就没有回滚保护，得人工介入。
 
-      cd /var/www/bid-master-web && git rev-parse --short HEAD | tee /var/lib/bidmaster-deploy/last-good
+      装完新脚本后核对（**用完整 SHA，不要用 `--short`**：脚本按完整 SHA 给镜像打 tag，
+      短 SHA 会对不上 tag，回滚等于失效）：
 
-  正向部署不受影响，但一旦某次部署失败触发自动回滚，这个值会把镜像退回 8 月 19 日的版本——属埋雷。
+      cd /var/www/bid-master-web && git rev-parse HEAD && cat /var/lib/bidmaster-deploy/last-good 2>/dev/null
+
+      两者不一致且尚未跑过一次新脚本部署时：
+
+      cd /var/www/bid-master-web && git rev-parse HEAD | tee /var/lib/bidmaster-deploy/last-good
+
+- [ ] D4 删生产 PG 里的孤儿库 `bidmaster_smoke_20260903`：09-03 我在生产机上做冷启动复现时建的，
+      复现完没清（失败分支才保留库，保留即空库）。它占空间、且会让后来的人误以为是有用的业务库。
+
+      docker exec coolify-db psql -U postgres -d bidmaster_smoke_20260903 -tc "select count(*) from information_schema.tables where table_schema='public'"
+      docker exec coolify-db psql -U postgres -d postgres -c "DROP DATABASE bidmaster_smoke_20260903"
+
+      第一条应出 `0`；不是 0 就先别 drop，把输出贴回来。删库是不可逆动作，且这是共享的 Coolify 实例，
+      务必确认库名逐字符对得上再执行第二行。
+
+- [ ] D5 本地收尾：删已合并的排障分支（09-04 已删 6 个，均为 `merge-base --is-ancestor` 验过的全并入）、
+      `chore/state-board-cicd-closeout`（`0d1f9fd`）作废——内容已拣进 `8874007`，若它有 MR 请直接关掉
 
 ## E. 等拍板的可选项（不做也不影响现状）
 

@@ -47,13 +47,27 @@ if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
   git merge --ff-only origin/main >/dev/null 2>&1 \
     || die "无法 fast-forward：本地与 origin/main 已分叉，人工介入，不用强制重置覆盖现场"
 fi
-SHA="$(git rev-parse --short=12 HEAD)"
+# 用完整 40 位 SHA 作镜像 tag 与状态文件内容：短 SHA 会让「tag / 回滚目标 / 状态文件」三处的
+# 长度口径不一致（本脚本曾写 12 位、旧版脚本写 7 位），回滚点校验就无从判真伪。
+# 日志里略长，但换来的是回滚目标唯一可比、可验证。
+SHA="$(git rev-parse HEAD)"
 log "代码就绪 sha=$SHA"
 
 # ---------- 2. 解析镜像名与回滚点 ----------
 IMAGES="$(docker compose -f "$COMPOSE_FILE" config --images)"
 [ -n "$IMAGES" ] || die "compose 未解析出任何镜像名：$COMPOSE_FILE"
-PREV_SHA="$(cat "$STATE_FILE" 2>/dev/null || echo '')"
+# 状态文件兼容处理：旧版脚本写的是「sha=<短SHA> branch=… at=…」整行、且用 7 位短 SHA，
+# 而本版按完整 40 位 SHA 给镜像打 tag。直接 cat 会把整行当 tag，回滚时变成一个非法镜像名。
+# 故：取第一个字段 → 剥 sha= 前缀 → 只承认 40 位十六进制，其余一律视为无回滚点。
+# 宁可「无回滚点」并告警，也不拿一个对不上的 tag 去回滚（那会把线上换成一个来源不明的镜像）。
+# 注意：必须先判文件存在——脚本开了 set -e，直接对不存在的文件跑 awk 会以退出码 2 终止整个部署
+# （首次运行时状态文件本就不存在，等于让每一次部署都失败）。
+PREV_SHA=""
+if [ -f "$STATE_FILE" ]; then
+  PREV_SHA="$(awk '{print $1; exit}' "$STATE_FILE" | sed 's/^sha=//')"
+  case "$PREV_SHA" in ''|*[!0-9a-fA-F]*) PREV_SHA="" ;; esac
+  [ "${#PREV_SHA}" -eq 40 ] || PREV_SHA=""
+fi
 if [ -n "$PREV_SHA" ]; then
   for img in $IMAGES; do
     docker image inspect "${img}:${PREV_SHA}" >/dev/null 2>&1 \
