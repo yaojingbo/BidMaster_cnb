@@ -19,7 +19,10 @@
 
   这条同时是修复生效的证据：同一个异常在修复前会直接打崩启动。
 
-- [ ] A2c 分辨「没有 vector 类型」的两种成因（处置完全不同，别直接装扩展）
+- [x] A2c 分辨「没有 vector 类型」的两种成因 → **结论是成因③：`coolify-db` 镜像未打包 pgvector**
+      （`pg_available_extensions` 里只有 `pg_trgm | 1.6 | 未安装`，没有 `vector` 行；连 `pg_trgm` 也没建成，
+      是因为 `RAG_VECTOR_SCHEMA_SQL` 第一条就是 `CREATE EXTENSION vector`，它失败即整批中断）。
+      **=> 生产知识库此前从未可用。** 落地方案见 `docs/deployment/pgvector-migration.md`（迁移 runbook，含路线选择与验收）
 
   生产拓扑实测（09-04）：后端连的是 **`coolify-db:5432/bid_master`**——Coolify 自带的共享 PG，
   机器上没有任何名字含 postgres/pgsql 的独立数据库容器，`docker ps` 全文为

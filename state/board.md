@@ -54,10 +54,16 @@ CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→�
   `rag_required=False`、model=`text-embedding-v4`、dimension=`1024`，全部满足 `init_schema` 首期约束
   → 代码确实走到了 `CREATE EXTENSION IF NOT EXISTS vector` 那步；又因 `rag_required` 默认 False，
   该步失败只被吞成知识库就绪原因（接口 503），不影响核心业务——与观察一致。
-  剩两种成因待分辨：**② 数据库角色无建扩展权限** vs **③ coolify-db 镜像未打包 pgvector 扩展**。
-  若是③，改配置/改代码都无解，得给那台 PG 装扩展包或换带 pgvector 的镜像——而它同时是 Coolify 自己的库，
-  属基础设施变更，风险面完全不同，必须先单独评估。
-  最省事的分辨法不是 psql，而是登录后打开知识库页：503 提示原文就是 `init_schema` 记下的 reason。
+  **定论＝成因③：`coolify-db` 镜像未打包 pgvector**（`pg_available_extensions` 只有
+  `pg_trgm | 1.6 | 未安装`，没有 `vector` 行；该实例连 `postgres` 角色都没有，超级用户由 Coolify 生成）。
+  连 `pg_trgm` 也没建成，是因为 `RAG_VECTOR_SCHEMA_SQL` 第一条语句就是 `CREATE EXTENSION vector`，一失败整批中断。
+  **即生产知识库自上线以来从未可用**，先后被崩溃循环、降级 WARN 掩盖，直到这次查 `pg_available_extensions` 才见光。
+  落地方案已写：`docs/deployment/pgvector-migration.md`——把 `bid_master` 迁到带 pgvector 的独立 PG，
+  不碰 Coolify 自己的库；含 B1/B2 路线判据（网络驱动 bridge / overlay）、迁移窗口、
+  以及验收必须真跑一次「上传 → 建索引 → 检索」，不能只看 `CREATE EXTENSION` 成功。
+  **撤回我自己提过的止血方案 `KNOWLEDGE_BASE_ENABLED=false`**：该开关只被 `main.py:34`、`db_schema.py:527` 读，
+  前端没有就绪接口可据其隐藏入口，关掉只会把准确报错换成一句误导性的「功能已关闭」——
+  拿准确换假话正是复盘里 C 类根因本身。
 
 修复（`fix/db-pool-init-vector-codec`）：`database.py` 建池回调改为捕 `Exception`、降级不崩，并把原因存
 `db.vector_codec_error` 供知识库/RAG 就绪检查报告；配 3 条回归测试（改前必红、改后全绿）。
@@ -78,6 +84,8 @@ GitHub 镜像已处置：孤儿根提交 `d14dcc5` 用 bundle 封存于 `~/1.Myn
 随后 `push -f` 使 GitHub 成为单向镜像，两 remote 现同为 `04a83fc`。
 
 待办：
+- 🔴 **执行 `docs/deployment/pgvector-migration.md`**：把 `bid_master` 迁到带 pgvector 的独立 PG，恢复知识库主干能力。
+  用户 09-04 已批准该推荐路线。先跑该文档第 2 节取证（含网络驱动判定 B1/B2），迁移需一个写入暂停窗口
 - ~~合并 `fix/db-pool-init-vector-codec` 并确认容器不再 Restarting~~ ✅ 已合（`8874007`）并生产验收，见上
 - ⚠️ **生产 vector 类型缺失的成因待分辨**（① 扩展没装 vs ② 配置未开启导致根本没走到建扩展），见上；
   这条决定知识库这条线还要不要做事
