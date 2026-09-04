@@ -3,7 +3,7 @@
 > 开工先读 `CLAUDE.md` + **`.42cog/` 四份** + 本文件 + `state/memory/MEMORY.md`。
 > **非轮规则：每轮有效工作必更新本文件**（倒序追加，新的在上）。
 
-## 2026-09-03 · CNB CI/CD 端到端排障（多轮，全走 MR）【构建链已闭环；生产后端崩溃已定位并本地修复，待合并上线】
+## 2026-09-03 · CNB CI/CD 端到端排障（多轮，全走 MR）【已闭环：构建链 + 生产运行时双验收（09-04 13:07 容器，重启 0 次）】
 
 CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→服务器 git pull + docker compose build。
 本轮逐个击破（每个一个分支+MR）：
@@ -39,6 +39,21 @@ CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→�
 - **09-02 记录的「`DO $$` 语法错误」归因是错的**：`db.execute()` 无参走简单查询协议，多语句与 `DO $` 块均正常。
   本地跑 `init_schema` 建出 18 张表、二次执行幂等。已作废该结论。
 
+### 生产验收（09-04 13:07 部署后，逐条取到运行时证据）
+
+- A1 稳定性：间隔 2 分钟两次 `docker inspect`，`重启次数=0 启动于=2026-09-04T05:07:33Z` 完全一致 → 崩溃循环已止。
+  （`RestartCount` 是累计值，0 = docker 从未重启过该容器；之前看到的 `Up 41s` 是新容器而非重启）
+- A2 `docker logs … | grep -i pgvector` 打出 `WARN: pgvector 编解码器注册失败（ValueError: unknown type: public.vector）`
+  → 双证：修复生效（该异常修复前直接打崩启动，现在只降级），且**生产库确实没有 vector 类型**。
+- 未带 token `GET /api/auth/me` → **401**（原 502）：后端真的在服务请求，且生产鉴权是开着的，
+  本地 `AUTH_DISABLED` 试验开关没渗进生产——这条历史待办一并结掉。
+- 结论：#8874007 已进 main 并生效；#10（`d954bc3`）已合并。
+- **新暴露的事实待查**：生产 vector 类型缺失，说明知识库/RAG 在生产此前就是不可用状态（此前只是被崩溃掩盖）。
+  两种可能待分辨：① 扩展真没装（`CREATE EXTENSION vector` 需要权限，`RAG_VECTOR_SCHEMA_SQL` 那步失败会被
+  就绪检查吞成 503 原因）；② `KNOWLEDGE_BASE_ENABLED=false` 或 embedding model/dimension 不匹配首期约束，
+  使 `init_schema` 在建扩展之前就 return。分辨方法见 `docs/deployment/post-deploy-checklist.md` A2。
+  若确认是①：装完扩展**必须重启后端容器**才会自愈（编解码器只在建池回调里注册）。
+
 修复（`fix/db-pool-init-vector-codec`）：`database.py` 建池回调改为捕 `Exception`、降级不崩，并把原因存
 `db.vector_codec_error` 供知识库/RAG 就绪检查报告；配 3 条回归测试（改前必红、改后全绿）。
 证据：空库冷启动不再抛异常，仅打印 `WARN: pgvector 编解码器注册失败（ValueError: unknown type: public.vector）`；单测 133 passed。
@@ -55,14 +70,18 @@ GitHub 镜像已处置：孤儿根提交 `d14dcc5` 用 bundle 封存于 `~/1.Myn
 随后 `push -f` 使 GitHub 成为单向镜像，两 remote 现同为 `04a83fc`。
 
 待办：
-- ⚠️ **合并 `fix/db-pool-init-vector-codec` 并确认容器不再 Restarting**（`docker ps` 无 Restarting + `/api/auth/me` 返回 401 而非 502）
-- ⚠️ 确认生产库是否装了 pgvector 扩展：装了则知识库可用；没装则应用现在能起、但 `/knowledge` 类功能会在就绪检查里报上述原因
-- ⚠️ 按 runbook 执行凭据整改：第 1 节 webhook 密钥、第 2 节 Deploy Key（需服务器 + CNB 后台，仅本人可操作）、第 3 节作废 CNB token
-- ⚠️ 生产机换上 `scripts/deploy-bidmaster.sh`（runbook 第 2 节 ⑤）——健康门 + 自动回滚今天就地生效，本次这类崩溃会被自动退回旧镜像
-- 线上人肉验收：`/docs` 可访问、`/statistics` 评标基准价按旧数据需重算
+- ~~合并 `fix/db-pool-init-vector-codec` 并确认容器不再 Restarting~~ ✅ 已合（`8874007`）并生产验收，见上
+- ⚠️ **生产 vector 类型缺失的成因待分辨**（① 扩展没装 vs ② 配置未开启导致根本没走到建扩展），见上；
+  这条决定知识库这条线还要不要做事
+- ⚠️ 按 runbook 执行凭据整改：第 1 节 webhook 密钥、第 2 节 Deploy Key、第 3 节作废 CNB token。
+  **用户已明确决定推迟到本轮任务收尾后**（可推迟、不可取消：明文 token 已外泄过一次，等价于「读到脚本=能推 main=自动上生产」）
+- ⚠️ 生产机换上 `scripts/deploy-bidmaster.sh`（runbook 第 2 节 ⑤）——健康门 + 自动回滚就地生效，本次这类崩溃会被自动退回旧镜像。
+  与凭据整改同属「需上台」一批，一起做
+- 线上人肉验收：`/docs` 可访问、`/statistics` 评标基准价按旧数据需重算（待用户在浏览器里过）
 - 生产健康接口 git.commit=unknown → 新脚本打 SHA tag 后由镜像 tag 承担定位；构建期注入 SHA 尚未做
 - 阶段 B 可选：CI 直接构建镜像推仓库→服务器只 `pull && up -d`，彻底摆脱服务器侧慢构建
-- 可选 CI 加固：构建后加一步 `python -c "import app.main"`（本次未纳入，因缺生产口径 DATABASE_URL，验证不足不塞进热修）
+- ~~可选 CI 加固：`python -c "import app.main"`~~ 作废：本次崩溃发生在 lifespan 建池阶段，import 探测根本抓不到；
+  真正能抓的是「起一个真进程 + 空库跑一遍启动」，属阶段 B 的 CI 里带 PG service 时再做
 - 本地 `.env.local:10 NEXT_PUBLIC_AUTH_DISABLED=true`、`src/backend/.env:22 AUTH_DISABLED=true` 为绕登录测试所加，需再测鉴权时记得关掉
 
 ## 2026-09-02 · CI/CD 已接入（CNB 云原生构建 + Coolify webhook）
