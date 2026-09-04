@@ -24,21 +24,26 @@
   生产拓扑实测（09-04）：后端连的是 **`coolify-db:5432/bid_master`**——Coolify 自带的共享 PG，
   机器上没有任何名字含 postgres/pgsql 的独立数据库容器，`docker ps` 全文为
   `frontend-… / backend-… / coolify / coolify-db / coolify-redis / coolify-realtime / coolify-sentinel / coolify-proxy`。
-  所以查扩展一律走 `docker exec coolify-db psql -U postgres -d bid_master`，口令不进聊天。
+  该实例里**没有 `postgres` 这个角色**（`psql -U postgres` 直接 FATAL），超级用户是 Coolify 生成的，先取名字：
 
-      # ① 配置侧：知识库开没开、embedding 参数是否满足首期约束
-      docker exec backend-fga7l0ngdi1bx9ikv3dulent env | grep -iE 'KNOWLEDGE_BASE|RAG_REQUIRED|RAG_EMBEDDING_MODEL|RAG_EMBEDDING_DIMENSION'
+      docker exec coolify-db env | grep -iE '^POSTGRES_USER=|^POSTGRES_DB='      # 只取这两个键，不会打印口令
 
-      # ② 服务端：镜像里到底有没有 pgvector 这个扩展包 + 本库装没装
-      docker exec coolify-db psql -U postgres -d bid_master -tc "select name, default_version, installed_version from pg_available_extensions where name in ('vector','pg_trgm')"
+      # 再用上面的 USER 查：镜像里有没有 pgvector 扩展包 + 本库装没装
+      docker exec coolify-db psql -U <USER> -d bid_master -tc "select name, default_version, installed_version from pg_available_extensions where name in ('vector','pg_trgm')"
 
-  - ① 不满足（`KNOWLEDGE_BASE_ENABLED` 非 true，或 model/dimension 不是 `text-embedding-v4`/`1024`）→ **成因①**：
-    `init_schema` 在执行建扩展那条 SQL 之前就 return 了，扩展本来就不会被创建。该决定的是「生产要不要开知识库」。
-  - ① 正常而 ② 里 `vector` 的 `installed_version` 为空 → **成因②**：`CREATE EXTENSION IF NOT EXISTS vector;`，
-    然后**必须重启后端容器**（编解码器只在建池回调里注册，不重启不自愈）。
-  - ② 里根本没有 `vector` 这一行 → 第三种成因：**coolify-db 镜像未打包 pgvector 扩展**，`CREATE EXTENSION` 会直接报
-    "extension is not available"。此时改代码/改配置都无解，得给那台 PG 装扩展包或换成带 pgvector 的镜像——
-    这是基础设施变更，风险面完全不同（它同时是 Coolify 自己的库），必须先单独评估。
+  **配置侧已排除**（09-04 实测）：容器 env 里 `KNOWLEDGE_BASE_ENABLED` / `RAG_REQUIRED` /
+  `RAG_EMBEDDING_MODEL` / `RAG_EMBEDDING_DIMENSION` 四个变量一个都不存在，而 `.dockerignore` 排除了
+  `.env`、`.env.*`，镜像内也没有配置文件可覆盖 → 生效值是代码默认 `config.py:60-69`
+  （`True` / `False` / `text-embedding-v4` / `1024`），全部满足 `init_schema` 首期约束，
+  所以代码确实走到了 `CREATE EXTENSION IF NOT EXISTS vector`。剩下两种成因：
+
+  - `installed_version` 为空但 `vector` 那一行存在 → **成因②：角色权限不足**。用超级用户执行
+    `CREATE EXTENSION IF NOT EXISTS vector;` 即可，然后**必须重启后端容器**（编解码器只在建池回调里注册，
+    不重启不自愈）。
+  - 查询结果里**根本没有 `vector` 这一行** → **成因③：coolify-db 镜像未打包 pgvector**，`CREATE EXTENSION`
+    会直接报 "extension is not available"。改代码/改配置都无解，得给那台 PG 装扩展包或换成带 pgvector 的镜像——
+    它同时是 Coolify 自己的库，属基础设施变更，风险面完全不同，必须先单独评估再动。
+  - 不想碰数据库也能分辨：登录后打开知识库页，503 提示原文就是 `init_schema` 记下的 reason。
 
 - [x] A2b 未带 token `curl -s -o /dev/null -w '%{http_code}\n' https://bidmaster.asia/api/auth/me` → **401**（原 502）：
       后端确实在服务请求，且生产鉴权开着、本地 `AUTH_DISABLED` 试验开关没渗进来。
@@ -92,11 +97,12 @@
 - [ ] D4 删生产 PG 里的孤儿库 `bidmaster_smoke_20260903`：09-03 我在生产机上做冷启动复现时建的，
       复现完没清（失败分支才保留库，保留即空库）。它占空间、且会让后来的人误以为是有用的业务库。
 
-      docker exec coolify-db psql -U postgres -d bidmaster_smoke_20260903 -tc "select count(*) from information_schema.tables where table_schema='public'"
-      docker exec coolify-db psql -U postgres -d postgres -c "DROP DATABASE bidmaster_smoke_20260903"
+      docker exec coolify-db psql -U <USER> -d bidmaster_smoke_20260903 -tc "select count(*) from information_schema.tables where table_schema='public'"
+      docker exec coolify-db psql -U <USER> -d postgres -c "DROP DATABASE bidmaster_smoke_20260903"
 
       第一条应出 `0`；不是 0 就先别 drop，把输出贴回来。删库是不可逆动作，且这是共享的 Coolify 实例，
-      务必确认库名逐字符对得上再执行第二行。
+      务必确认库名逐字符对得上再执行第二行。第二行连的是维护库 `postgres`（标准 postgres 镜像自带；
+      若报「数据库不存在」，换成 A2c 里查到的 `POSTGRES_DB` 值）。
 
 - [ ] D5 本地收尾：删已合并的排障分支（09-04 已删 6 个，均为 `merge-base --is-ancestor` 验过的全并入）、
       `chore/state-board-cicd-closeout`（`0d1f9fd`）作废——内容已拣进 `8874007`，若它有 MR 请直接关掉

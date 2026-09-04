@@ -48,11 +48,16 @@ CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→�
 - 未带 token `GET /api/auth/me` → **401**（原 502）：后端真的在服务请求，且生产鉴权是开着的，
   本地 `AUTH_DISABLED` 试验开关没渗进生产——这条历史待办一并结掉。
 - 结论：#8874007 已进 main 并生效；#10（`d954bc3`）已合并。
-- **新暴露的事实待查**：生产 vector 类型缺失，说明知识库/RAG 在生产此前就是不可用状态（此前只是被崩溃掩盖）。
-  两种可能待分辨：① 扩展真没装（`CREATE EXTENSION vector` 需要权限，`RAG_VECTOR_SCHEMA_SQL` 那步失败会被
-  就绪检查吞成 503 原因）；② `KNOWLEDGE_BASE_ENABLED=false` 或 embedding model/dimension 不匹配首期约束，
-  使 `init_schema` 在建扩展之前就 return。分辨方法见 `docs/deployment/post-deploy-checklist.md` A2。
-  若确认是①：装完扩展**必须重启后端容器**才会自愈（编解码器只在建池回调里注册）。
+- **生产 vector 类型缺失（知识库此前就不可用，只是被崩溃掩盖）—— 成因①已排除**：
+  容器 env 里四个知识库变量一个都没有（两种取法都验为空），且 `.dockerignore` 排除 `.env`/`.env.*`
+  故镜像内也无配置文件可覆盖 → 生效的是代码默认值 `config.py:60-69`：`knowledge_base_enabled=True`、
+  `rag_required=False`、model=`text-embedding-v4`、dimension=`1024`，全部满足 `init_schema` 首期约束
+  → 代码确实走到了 `CREATE EXTENSION IF NOT EXISTS vector` 那步；又因 `rag_required` 默认 False，
+  该步失败只被吞成知识库就绪原因（接口 503），不影响核心业务——与观察一致。
+  剩两种成因待分辨：**② 数据库角色无建扩展权限** vs **③ coolify-db 镜像未打包 pgvector 扩展**。
+  若是③，改配置/改代码都无解，得给那台 PG 装扩展包或换带 pgvector 的镜像——而它同时是 Coolify 自己的库，
+  属基础设施变更，风险面完全不同，必须先单独评估。
+  最省事的分辨法不是 psql，而是登录后打开知识库页：503 提示原文就是 `init_schema` 记下的 reason。
 
 修复（`fix/db-pool-init-vector-codec`）：`database.py` 建池回调改为捕 `Exception`、降级不崩，并把原因存
 `db.vector_codec_error` 供知识库/RAG 就绪检查报告；配 3 条回归测试（改前必红、改后全绿）。
