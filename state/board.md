@@ -121,16 +121,17 @@ GitHub 镜像已处置：孤儿根提交 `d14dcc5` 用 bundle 封存于 `~/1.Myn
 随后 `push -f` 使 GitHub 成为单向镜像，两 remote 现同为 `04a83fc`。
 
 待办：
-- 🔴 **执行 `docs/deployment/pgvector-migration.md`**：把 `bid_master` 迁到带 pgvector 的独立 PG，恢复知识库主干能力。
-  用户 09-04 已批准该推荐路线。先跑该文档第 2 节取证（含网络驱动判定 B1/B2），迁移需一个写入暂停窗口
+- ✅ ~~执行 `docs/deployment/pgvector-migration.md`~~ 已切换生效（09-06 04:32，见上一节）；
+  剩该文档 §5 的「真跑一次上传→建索引→检索」与 §6 收尾（旧库改名保留、`bidmaster-pg` 进备份计划）
 - ~~合并 `fix/db-pool-init-vector-codec` 并确认容器不再 Restarting~~ ✅ 已合（`8874007`）并生产验收，见上
-- ⚠️ **生产 vector 类型缺失的成因待分辨**（① 扩展没装 vs ② 配置未开启导致根本没走到建扩展），见上；
-  这条决定知识库这条线还要不要做事
+- ✅ ~~生产 vector 类型缺失的成因待分辨~~ 已定论＝成因③（coolify-db 镜像未打包 pgvector），已迁移解决
 - ⚠️ 按 runbook 执行凭据整改：第 1 节 webhook 密钥、第 2 节 Deploy Key、第 3 节作废 CNB token。
   **用户已明确决定推迟到本轮任务收尾后**（可推迟、不可取消：明文 token 已外泄过一次，等价于「读到脚本=能推 main=自动上生产」）
 - ⚠️ 生产机换上 `scripts/deploy-bidmaster.sh`（runbook 第 2 节 ⑤）——健康门 + 自动回滚就地生效，本次这类崩溃会被自动退回旧镜像。
   与凭据整改同属「需上台」一批，一起做
 - 线上人肉验收：`/docs` 可访问、`/statistics` 评标基准价按旧数据需重算（待用户在浏览器里过）
+- 🔴 生产从未配 AI 供应商：知识库需要 `DASHSCOPE_API_KEY` + `DASHSCOPE_EMBEDDING_BASE_URL` 两行（值在本机
+  `.env.local:8`/`:9`）；而招标文件提取要的是 `AI_PROVIDER` + 对应 key，**要不要配、配哪家属产品决策，等人拍板**
 - 生产健康接口 git.commit=unknown → 新脚本打 SHA tag 后由镜像 tag 承担定位；构建期注入 SHA 尚未做
 - 阶段 B 可选：CI 直接构建镜像推仓库→服务器只 `pull && up -d`，彻底摆脱服务器侧慢构建
 - ~~可选 CI 加固：`python -c "import app.main"`~~ 作废：本次崩溃发生在 lifespan 建池阶段，import 探测根本抓不到；
