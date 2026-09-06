@@ -45,7 +45,7 @@ class SafeZipService:
         for info in infos:
             if info.is_dir():
                 continue
-            path = self._validate_path(info.filename)
+            path = self._validate_path(self._decode_name(info))
             key = unicodedata.normalize("NFC", path).casefold()
             if key in normalized_names:
                 raise AppError("ZIP 中存在规范化后重名文件", 400, "ARCHIVE_DUPLICATE_PATH")
@@ -60,7 +60,7 @@ class SafeZipService:
             if suffix in {".zip", ".rar", ".7z", ".tar", ".gz"}:
                 raise AppError("不支持嵌套压缩包", 400, "ARCHIVE_NESTED_NOT_SUPPORTED")
             if suffix != ".pdf":
-                raise AppError(f"ZIP 仅允许 PDF：{path}", 400, "ARCHIVE_NON_PDF_ENTRY")
+                raise AppError(f"ZIP 内只能包含 PDF 文件：{path}", 400, "ARCHIVE_NON_PDF_ENTRY")
             if info.file_size > self.settings.rag_archive_max_entry_size:
                 raise AppError(f"ZIP 成员过大：{path}", 400, "ARCHIVE_ENTRY_TOO_LARGE")
             ratio = info.file_size / max(1, info.compress_size)
@@ -99,9 +99,9 @@ class SafeZipService:
                         chunks.append(chunk)
                 data = b"".join(chunks)
                 if not data.startswith(b"%PDF-"):
-                    raise AppError(f"文件内容不是 PDF：{info.filename}", 400, "ARCHIVE_INVALID_PDF")
+                    raise AppError(f"文件内容不是 PDF：{self._decode_name(info)}", 400, "ARCHIVE_INVALID_PDF")
                 result.append(ArchivePdf(
-                    path=self._validate_path(info.filename), content=data,
+                    path=self._validate_path(self._decode_name(info)), content=data,
                     compressed_size=info.compress_size, uncompressed_size=len(data), crc=info.CRC,
                 ))
         except (RuntimeError, zipfile.BadZipFile) as exc:
@@ -110,12 +110,32 @@ class SafeZipService:
             archive.close()
         return result
 
+    def _decode_name(self, info: zipfile.ZipInfo) -> str:
+        """修复未设 UTF-8 标志的 ZIP 文件名。
+
+        ZIP 规范用 flag_bits 第 11 位声明文件名是 UTF-8；部分压缩工具写入 UTF-8 字节却不置位，
+        zipfile 会按 CP437 解码，中文变乱码（如「天台」→「σñ⌐」）。这里对未置位者按
+        UTF-8 → GBK 顺序重解码，恢复真实文件名；失败则退回原始解码。
+        """
+        if info.flag_bits & 0x800:
+            return info.filename
+        try:
+            raw = info.filename.encode("cp437")
+        except UnicodeEncodeError:
+            return info.filename
+        for encoding in ("utf-8", "gbk"):
+            try:
+                return raw.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        return info.filename
+
     def _validate_path(self, raw: str) -> str:
         if "\x00" in raw or any(ord(char) < 32 for char in raw):
             raise AppError("ZIP 文件名包含非法字符", 400, "ARCHIVE_UNSAFE_PATH")
         path = unicodedata.normalize("NFC", raw.replace("\\", "/"))
         if len(path.encode("utf-8")) > self.settings.rag_archive_max_filename_bytes:
-            raise AppError("ZIP 文件名过长", 400, "ARCHIVE_UNSAFE_PATH")
+            raise AppError(f"ZIP 文件名或路径过长：{path}", 400, "ARCHIVE_UNSAFE_PATH")
         pure = PurePosixPath(path)
         parts = pure.parts
         if pure.is_absolute() or any(part in {"", ".", ".."} for part in parts):
