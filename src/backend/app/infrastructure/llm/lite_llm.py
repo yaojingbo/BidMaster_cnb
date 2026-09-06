@@ -22,7 +22,7 @@ class LiteLLMService:
         "openai": "openai/gpt-4o",
         "deepseek": "deepseek/deepseek-chat",
         "claude": "anthropic/claude-sonnet-4-20250514",
-        "dashscope": "openai/qwen3.6-plus",
+        "dashscope": "openai/qwen-plus",
         "zhipu": "openai/glm-4-flash",
         "minimax": "openai/MiniMax-M3",
         "ollama": "ollama/llama3",
@@ -451,6 +451,12 @@ class LiteLLMService:
 
 def _parse_api_error(body: bytes, status_code: int) -> str:
     """解析第三方 API 的错误响应，返回可读的错误消息。"""
+    # 常见错误 → 中文可操作提示
+    _FRIENDLY_ERRORS = {
+        "AllocationQuota.FreeTierOnly": "当前供应商免费额度已用尽，请在「AI 设置」中更换可用模型（如 qwen-plus/qwen-turbo）或充值后重试",
+        "InvalidApiKey": "API Key 无效或已过期，请在「AI 设置」中重新填写",
+        "AuthenticationError": "API Key 鉴权失败，请在「AI 设置」中重新填写",
+    }
     try:
         error_json = _json.loads(body)
         # OpenAI 标准格式: {"error": {"message": "...", "type": "..."}}
@@ -459,6 +465,10 @@ def _parse_api_error(body: bytes, status_code: int) -> str:
             if isinstance(err, dict):
                 msg = err.get("message", str(err))
                 err_type = err.get("type", "")
+                code = err.get("code", "")
+                friendly = _FRIENDLY_ERRORS.get(err_type) or _FRIENDLY_ERRORS.get(code)
+                if friendly:
+                    return f"API 错误 ({status_code}): {friendly}"
                 if err_type:
                     return f"API 错误 ({status_code}): {msg}（{err_type}）"
                 return f"API 错误 ({status_code}): {msg}"

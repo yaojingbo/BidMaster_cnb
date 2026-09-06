@@ -846,6 +846,15 @@ class ExtractService:
                 elif event["type"] == "llm_done":
                     # LLM 完成，解析并保存
                     full_response = result_holder["text"]
+                    if not full_response.strip():
+                        # 供应商返回空内容（配额用尽 / 模型异常）时，不落库为 completed，
+                        # 避免前端显示「提取完成」但预览为空。
+                        _saved = True
+                        yield {
+                            "type": "error",
+                            "data": {"message": "AI 未返回任何内容，可能当前供应商配额已用尽或模型异常，请在「AI 设置」中更换可用供应商/模型后重试"},
+                        }
+                        break
                     try:
                         json_str, found_elements = _parse_llm_json_response(full_response)
                         found_elements = _normalize_elements(found_elements, full_response, selected_names)
@@ -910,15 +919,16 @@ class ExtractService:
 
                 if result_holder["done"]:
                     full_response = result_holder["text"]
-                    await add_extract({
-                        "file_id": file_id,
-                        "file_name": file_name,
-                        "template_type": template_type,
-                        "mode": effective_mode,
-                        "content": full_response,
-                        "status": "completed_disconnected",
-                        "source_hash": effective_source_hash,
-                    }, user_id=user_id)
+                    if full_response.strip():
+                        await add_extract({
+                            "file_id": file_id,
+                            "file_name": file_name,
+                            "template_type": template_type,
+                            "mode": effective_mode,
+                            "content": full_response,
+                            "status": "completed_disconnected",
+                            "source_hash": effective_source_hash,
+                        }, user_id=user_id)
                 elif result_holder["text"]:
                     await add_extract({
                         "file_id": file_id,

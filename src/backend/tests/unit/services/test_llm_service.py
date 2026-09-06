@@ -32,7 +32,7 @@ class TestLiteLLMServiceModelMapping:
         assert service._get_model_name("deepseek") == "deepseek/deepseek-chat"
 
     def test_model_mapping_dashscope(self, service):
-        assert service._get_model_name("dashscope") == "openai/qwen3.6-plus"
+        assert service._get_model_name("dashscope") == "openai/qwen-plus"
 
     def test_model_mapping_zhipu(self, service):
         assert service._get_model_name("zhipu") == "openai/glm-4-flash"
