@@ -25,29 +25,41 @@ CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→�
 - CI 过滤只作用于 CI：生产日志可见 paddlepaddle/paddleocr/markitdown/onnxruntime 全装，线上功能不减
 - 耗时构成：CI 约 6-8 min + 服务器构建约 7 min；其中新瓶颈是镜像 export/unpack（后端 110+31s、前端 81+16s，因 paddle 镜像体积大），下次 pip 层命中缓存后服务器侧约 2-3 min
 
-### 追加（09-06）：`20260906-pgvector-migration` 迁移执行中
+### 追加（09-06）：`20260906-pgvector-migration` 已切换生效，待正证与知识库真跑验收
 
 - 取证已全：PG `15.19` → `pgvector/pgvector:pg15`；库 8.8 MB；4 网络全 bridge → 走 **B1**；
   接入网 `fga7l0ngdi1bx9ikv3dulent_bidmaster`。迁移前 public 表数留底 **18**。
-- 进度：dump/restore 双 `rc=0`，`vector 0.8.6` + `pg_trgm 1.6` 建成，18 表对平，
-  五张关键表行数新旧完全一致（users=1 / files=2 / openings=4 / extracts=0 / knowledge_bases=0），
-  backend 容器内解析 `bidmaster-pg` → `172.21.0.3`。**只剩改 `DATABASE_URL` 一步。**
-- 🔴 **新发现（比 pgvector 更底层）：生产从未配置任何 AI 供应商。** 后端容器实际 env 里
-  没有 `AI_PROVIDER`、没有 `DASHSCOPE_API_KEY`、没有 `DASHSCOPE_EMBEDDING_BASE_URL`，
-  与 `extracts=0`、`knowledge_bases=0` 互相印证——招标文件提取与知识库这条线在生产从来没跑过。
-  即：切完库，建索引仍会在 embedding 那步失败，那是**第二个独立阻塞**，别误判成第一个没修好。
-  可用值在本机 `.env.local:8`（35 字符 key）与 `:9`（embedding base url），我全程只量长度未打印值。
-- 配置真相源待定：compose 是手工写的（`build.context: /var/www/bid-master-web` + `Dockerfile`/`Dockerfile.frontend`），
-  但 `.env` 里多出 `SERVICE_NAME_BACKEND/FRONTEND` 两个不是我们写的键 → 疑为 Coolify 代写。
-  切之前必须先确定「改文件会不会被下次部署覆盖」，判据：Coolify 库 `environment_variables` 表里有没有 `DATABASE_URL` 行。
+- ✅ **09-06 04:32 切换完成并有运行时证据**：改的是手工 `.env` 第 3 行（先 `cp -a .env .env.bak-2026-09-06`），
+  `docker compose up -d` 重建两容器 → `启动于=2026-09-06T04:32:00Z 重启次数=0`、
+  `grep -i pgvector` **无输出（rc=1）**= 那句从 09-04 起一直存在的 WARN 消失、`/api/auth/me` 仍 401。
+  最硬的一条是「谁在连我」：新库 `pg_stat_activity` 有 `172.21.0.4`（后端）idle 连接，
+  旧库除本次 psql 会话外**零活动连接**——排除「其实还连着旧库」这类假通过。
+- 待补的正证：`information_schema.columns where udt_name='vector'` 应能查到向量列（WARN 消失只证明注册成功，
+  查到 vector 类型列才证明应用真的用上了它）。
+- 🔴 **切库后剩两个独立事项，别混**：① 生产没配 AI 供应商，建索引会在 embedding 步失败，
+  只需往 `.env` 追加 `DASHSCOPE_API_KEY` + `DASHSCOPE_EMBEDDING_BASE_URL` 两行（`rag_embedding_provider`
+  默认已是 `dashscope`，故 `AI_PROVIDER` 不影响 embedding；但 `AI_PROVIDER` 默认 `deepseek` 且
+  `deepseek_api_key` 生产为空 → **招标文件提取这条线在生产同样从未可用**，属待拍板）；
+  ② 浏览器真跑「上传 → 建索引 → 检索」，这是本次事故最该补却没补过的验收项。
+
+- 中间步骤正证（都是一手输出，非推断）：`dump rc=0` / `restore rc=0`；新库扩展
+  `vector 0.8.6` + `pg_trgm 1.6`；18 表对平；五张关键表行数新旧全等
+  （users=1 / files=2 / openings=4 / extracts=0 / knowledge_bases=0）；
+  后端容器内解析 `bidmaster-pg` = `172.21.0.3`。
+- **配置真相源定论**：compose 与 `.env` 都在 `/data/coolify/services/<uuid>/` 且**是手工放的**
+  （compose 里 `build.context: /var/www/bid-master-web`；Coolify 库 `environment_variables` 共 **0 行**，
+  即它没存过任何界面变量、也不会在部署时重写这个 `.env`）。所以改 `.env` 是持久正解，
+  在 Coolify 界面里翻 `DATABASE_URL` 一定翻不到——这条以前只活在聊天记录里，现已进 `pgvector-migration.md` §4。
+  变量分两层：应用变量走 `env_file:`（compose 38/74 行），常量走内联 `environment:`（10/48 行）；
+  以后加密钥放错层的现象是「改了没生效」。
 
 - 自纠一处：runbook 里我把口令 `echo` 到终端，用户整块贴回对话 → 按我自己定的口径算外泄。
   改文档为 `umask 077` 落盘到 `/root/.bidmaster-pg-password`（可事后读回、不回显），
   并**换掉那个已进聊天记录的口令**——库还是空的，`docker rm -f` + `docker volume rm` 重来 30 秒，
   比带着外泄凭据上线便宜得多。
-- 下一步（顺序不可换）：重建容器用新口令 → `pg_isready` 过 → dump/restore（两个 rc 必须都 0）
-  → 建扩展 + 表数对平 18 → 后端容器内验 DNS → 改 Coolify `DATABASE_URL` → §5 验收含真跑一次
-  「上传 → 建索引 → 检索」。
+- 下一步：补 vector 列正证 → 配 embedding 密钥（值在本机 `.env.local:8` 与 `:9`，全程只量长度未打印）
+  → 浏览器真跑知识库链路 → 稳定 1-2 天后按迁移文档 §6 收尾（旧库改名保留、删 `bidmaster_smoke_20260903`、
+  把不由 Coolify 纳管的 `bidmaster-pg` 登记进备份计划）。
 - 仍未做：A3 浏览器验收；合 `chore/deploy-hardening`（`f0ef67d`，**必须早于**在服务器装新脚本）。
 
 ### 追加（09-03 夜 → 09-04）：部署后 backend 进入崩溃重启循环
