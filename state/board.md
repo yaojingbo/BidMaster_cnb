@@ -3,6 +3,49 @@
 > 开工先读 `CLAUDE.md` + **`.42cog/` 四份** + 本文件 + `state/memory/MEMORY.md`。
 > **非轮规则：每轮有效工作必更新本文件**（倒序追加，新的在上）。
 
+## 2026-09-07 · `20260907-rag-answer-refusal` 知识库问答「依据不足」误拒根因修复【代码已提交，待上台部署】
+
+- **根因（复现 + 运行时证据）**：抽取✅检索✅，问题在「生成」prompt 太死。用户问「招标特点/一般如何设置」是跨片段归纳题，旧 prompt「只能依据片段、禁止常识补全」把归纳判成无依据 → LLM 真拒绝。次要：context 标注 `[片段 N]` 与校验正则 `\[(\d+)]` 不一致，LLM 回 `[片段N]`/`[编号:N]` 时被误判无效引用。
+- **修复**：`rag_answer_service.py` context 标注改 `[N]`、prompt 明示 `[数字]` 引用 + 允许归纳概括 + 仅对确实无信息才拒绝、真拒绝时保留 LLM 具体原因。运行时证据：三条真实提问（含「台州招标文件设置一般特点是怎样的」）从 `refused=True` 变为带 `[1][2]…` 引用答案；`test_rag_answer_service` + `test_archive_service` 10 passed。
+- **同步修并提交**：`lite_llm.py` demo 短路去掉 `auth_disabled`（本地 `AUTH_DISABLED=true` 不再把 LLM 短路成 demo）；前端透传 `activeProvider` 到 stream/query。提交 `9d6639f`(ZIP 乱码) `a71de38`(force 版本长度) `8ff678c`(prompt) `0b72679`(供应商透传)，均在 `chore/deploy-hardening`（= 已合入 main 的 `21097dd` 之上 +4）。
+- **阻塞（需用户上台）**：① 生产机 SSH 需微信扫码（`Permission denied publickey`），我无法自主配生产 `.env` 的 `DASHSCOPE_API_KEY`+`DASHSCOPE_EMBEDDING_BASE_URL` 与运行时验收；② CNB 无 token 无法建 MR。
+- **下一步（用户醒后一条龙）**：① 微信扫码 SSH 上生产；② 往生产 `.env` 加 DashScope 两行（值在本机 `.env.local:8`/`:9`）；③ 把 `chore/deploy-hardening` 合并到 main 触发 CI→Coolify 部署；④ 浏览器真跑「上传→建索引→检索」取运行时证据。
+
+## 2026-09-07 · `20260907-zip-filename-mojibake` ZIP 中文文件名乱码修复【已完成】
+
+- `src/backend/app/services/archive_service.py`：新增 `_decode_name`，对未置 UTF-8 标志位（`flag_bits & 0x800` 为假）的 ZIP 成员按 UTF-8 → GBK 顺序重解码，恢复真实中文文件名；`read_pdfs` 里校验路径、非 PDF 报错、`ArchivePdf.path` 三处统一改用它。
+- 根因：部分压缩工具写入 UTF-8 字节却不置位，`zipfile` 按 CP437 解码 → 「天台」变「σñ⌐」。用户报「ZIP 仅允许 PDF：01_σñ⌐σÅ░…」即此。
+- 报错文案同轮澄清：`ZIP 内只能包含 PDF 文件：{path}`（原「ZIP 仅允许 PDF」）、`ZIP 文件名或路径过长：{path}`（原「ZIP 文件名过长」，现带路径）。
+- 验证（运行时证据）：字节级造「UTF-8 文件名但无标志位」的真实 ZIP，`zipfile` 原生读出乱码、`read_pdfs` 还原为 `01_天台平桥污水处理厂.pdf`；`test_archive_service.py` 新增 `test_zip还原未置utf8标志的中文文件名`，7 passed。
+- 说明：用户后续报的「ZIP 文件名过长」= `rag_archive_max_filename_bytes=255`（按 UTF-8 字节数计全路径），乱码已修后该错误若仍出现，即 ZIP 内确有条目路径超 255 字节，新文案已带路径可直接定位到具体文件。
+
+## 2026-09-06 · `20260906-kb-upload-safari` 知识库上传按钮无响应修复【已完成】
+
+- `src/app/(main)/knowledge/[knowledgeBaseId]/page.tsx`：上传 PDF/ZIP 从「`<label>` 包裹 `hidden` 文件框」改为「`<button type="button" onClick={() => fileInputRef.current?.click()}` + 同级 `<input ref className="file-sr-only">`」，与 `ExcelUploader`/`FileUploader` 一致，程序化触发不依赖 label 激活。
+- 根因：`hidden`（`display:none`）的文件框在 Safari 点 `<label>` 不弹选择框，表现为点上传无响应；Chromium 正常。
+- 验证（Playwright 运行时证据）：DOM 确认 button+file-sr-only；点击弹出文件框；`POST /api/files/upload` 200 → `POST /api/knowledge-bases/{id}/files` 200 → 刷新后文件列表 +1；无回归。
+
+## 2026-09-06 · `20260906-force-index-version` force 索引版本长度修复【已完成】
+
+- `src/backend/app/infrastructure/rag_repository.py`：force 模式改用 `:force:` + 12 位 UUID hex 后缀，并将版本前缀裁剪到 `VARCHAR(50)` 可容纳范围；每次强制重建仍生成唯一版本。
+- `src/backend/tests/integration/infrastructure/test_rag_repository_postgres.py`：新增版本长度不超过 50 且两次 force 版本不重复的回归测试。
+- 验证：后端全量单测 `133 passed`；真实 PostgreSQL 仓储集成测试 `3 passed`（含 force 插入、长度和唯一性）；前端单测 `60 passed`；Next.js 生产构建通过；部署脚本桩测 `12/12 passed`。
+- 说明：先前后端全量单测的 `pgvector` 导入失败源于误用 `src/backend/.venv`；仓库 Makefile 使用根目录 `.venv`，该环境的 `pgvector.asyncpg` 可正常导入。
+- 下一步：将本轮修复通过 CNB MR 合入 main，触发生产部署并取得运行时证据。
+
+## 2026-09-06 · `20260906-local-rag-e2e` 本地知识库 RAG 全链路验证【已完成：主链路全通，定位 2 个代码问题 + 生产 404 归因】
+
+- 目标：本地真实跑通「创建知识库 → 上传 → 建索引 → 检索 → LLM 回答」，以运行时证据区分代码故障与生产部署入口故障；详见 `state/20260906-local-rag-e2e.md`。
+- **本地主链路已全通**（FastAPI + 本地 PostgreSQL/pgvector，`RAG_SERVICE_ENABLED=false` 绕过独立 RAG 委托）：
+  - FastAPI direct `/api/knowledge-bases` 200；Next proxy `/api/knowledge/knowledge-bases` 200。
+  - 创建知识库 201（ID `105e3d76-…`）→ 上传 PDF 200 → 建索引 202 → 索引完成（1 chunk，8 秒）→ DashScope 真实生成 1024 维向量写入 `rag_chunks`（数据库核对 `vector_dims=1024`）→ 检索命中（`retrieved_chunk_ids` 非空）→ 真实 LLM 回答 `refused=False`、citations=1、答案正确提取「30 calendar days」和「RMB 50,000 [1]」。
+- **发现 2 个代码问题**：
+  1. `force=true` 触发 VARCHAR(50) 溢出：`rag_repository.py:45-47` 拼接 `index_version:force:<uuid>` 得 63 字符，超过 `rag_indexes.index_version VARCHAR(50)`，任何 force 重建索引请求返回 500。已立任务 `#11`。
+  2. `auth_disabled=True` 短路 LLM 为 demo：`lite_llm.py:269` 判断 `demo_mode or auth_disabled` 即走 `_demo_complete()`，返回固定文本（不含 `[1]` 引用），导致 `rag_answer_service.py:87` 引用校验失败 → `refused=True`。本地为绕登录设的 `AUTH_DISABLED=true` 同时把真实 LLM 调用短路了，使得通过 API 的查询永远返回「未在所选文件中找到足够依据」。生产 `AUTH_DISABLED=false` 不受此影响。
+- **生产 404 根因已确认**：Traefik `/api/*` → FastAPI 后端全量转发，Next.js catch-all 代理不执行。前端 API client（`knowledge-api.ts`）改为直接调用后端真实路径 `/api/knowledge-bases`，移除 `knowledge/` 前缀。两个调用点修复：`knowledgeFetch()` + `streamKnowledgeQuery()`。待部署验证。
+- 独立 Node RAG 链路（`src/rag-service` + Neon/Zilliz）未作为主验收目标，`RAG_DATABASE_URL` 缺失但非主链路阻塞；live=200、embedding=true、zilliz=true 已确认。
+- 下一步：① 合并知识库 API 路径与 force 溢出修复 → 生产部署验证；② 生产真实浏览器验收「上传 → 建索引 → 检索」（pgvector 迁移文档 §5 要求）。
+
 ## 2026-09-03 · CNB CI/CD 端到端排障（多轮，全走 MR）【已闭环：构建链 + 生产运行时双验收（09-04 13:07 容器，重启 0 次）】
 
 CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→服务器 git pull + docker compose build。
