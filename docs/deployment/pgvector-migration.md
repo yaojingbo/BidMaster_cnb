@@ -129,6 +129,16 @@ docker exec bidmaster-pg psql -U postgres -d bid_master -tc "select count(*) fro
 
 ## 4. 切连接串（唯一影响线上的动作）
 
+**配置真相源（09-06 实测确定，别再猜界面）**：生产这套是手工 compose，不是 Coolify 生成的资源。
+
+- `docker-compose.yml` 与 `.env` 同在 `/data/coolify/services/fga7l0ngdi1bx9ikv3dulent/`；
+  compose 里 `build.context: /var/www/bid-master-web`、`dockerfile: Dockerfile` / `Dockerfile.frontend`
+  ——Coolify 自己生成的东西不会引用那个手工部署目录。
+- 变量分两层：`env_file:`（第 38、74 行）注入应用变量，`environment:`（第 10、48 行）内联少量常量。
+  **`DATABASE_URL` 只来自 `.env`**（compose 全文没有它），所以改 `.env` 不存在被内联值盖掉的问题。
+- Coolify 库 `select count(*) from environment_variables` = **0 行** → 它没存过任何界面变量，
+  也就不会在部署时重写这个 `.env`。故改文件是持久正解，不需要（也不该）去界面找。
+
 **先验 DNS 再改配置**——不通的话改了也白改，而且改完的现象（连不上库）会让人以为是迁移坏了：
 
 ```bash
@@ -136,24 +146,40 @@ docker start backend-fga7l0ngdi1bx9ikv3dulent
 docker exec backend-fga7l0ngdi1bx9ikv3dulent python -c "import socket;print(socket.gethostbyname('bidmaster-pg'))"
 ```
 
-出 IP 才算通。报 `gaierror` / 名字解析失败，说明该 compose 网络不认这个别名，退一步把它同时接入服务网络：
+出 IP 才算通（本机实测 `172.21.0.3`）。报 `gaierror` / 名字解析失败，说明该 compose 网络不认这个别名，
+退一步把它同时接入服务网络：
 
 ```bash
 docker network connect fga7l0ngdi1bx9ikv3dulent bidmaster-pg
 docker exec backend-fga7l0ngdi1bx9ikv3dulent python -c "import socket;print(socket.gethostbyname('bidmaster-pg'))"
 ```
 
-通了之后，在 Coolify 该服务的环境变量里把 `DATABASE_URL` 改为：
+通了之后改 `.env` 第 3 行。口令从落盘文件读进变量再拼进 sed，**全程不打印**（`openssl rand -hex` 只含十六进制，
+所以它出现在双引号 sed 里不会踩到分隔符）：
 
+```bash
+PW=$(cat /root/.bidmaster-pg-password)
+cd /data/coolify/services/fga7l0ngdi1bx9ikv3dulent
+cp -a .env .env.bak-$(date +%F)
+sed -i -E "s#^DATABASE_URL=.*#DATABASE_URL=postgresql://postgres:${PW}@bidmaster-pg:5432/bid_master#" .env
+grep -n "^DATABASE_URL" .env | sed -E 's#://[^@ ]*@#://***@#'      # 验证点：主机名已是 bidmaster-pg
 ```
-postgresql://postgres:<PW>@bidmaster-pg:5432/bid_master
+
+最后一行也做了掩码，所以它的输出可以整块贴回对话。
+
+改完让容器换配置（`up -d` 只重建 env 变了的那个）。不指定 `-p` 是安全的：compose 项目名由所在目录推导为
+`fga7l0ngdi1bx9ikv3dulent`，与容器名前缀一致，且 CI 部署本来就在跑同一条不带 `-p` 的命令并已验证会
+重建到正确的容器上，不会生出重复容器：
+
+```bash
+docker compose -f /data/coolify/services/fga7l0ngdi1bx9ikv3dulent/docker-compose.yml up -d
 ```
 
-`<PW>` 换成 `/root/.bidmaster-pg-password` 的内容。**这个值只存在于 Coolify 环境变量和服务器上，
-不进 git、不进聊天记录**（若曾在聊天里出现，按 `credential-rotation-runbook.md` 的口径当外泄处理：
-趁库还是空的 `docker rm -f bidmaster-pg && docker volume rm bidmaster_pg_data` 重来一次，成本 30 秒）。
+回滚两条，按需要用到哪步：改回 `.env.bak-$(date +%F)` 再 `up -d`；或者只把 `DATABASE_URL`
+一行还原成 `postgresql://<旧用户>:<旧口令>@coolify-db:5432/bid_master`。旧库一个字节都没动，随时可退。
 
-改完在 Coolify 里重新部署（或 `docker compose up -d` 该服务）。回滚方案就一条：把 `DATABASE_URL` 改回原值再部署。
+口令 `/root/.bidmaster-pg-password` 的可见性只到 root（`umask 077` 写的）。若它曾进过聊天记录，
+按 `credential-rotation-runbook.md` 的口径当外泄处理：趁库还是空的删容器删卷重来，成本 30 秒。
 
 **一条已知的长期风险**：`bidmaster-pg` 不由 compose 管理，若哪天 Coolify 重建了这个服务的网络
 （改网络配置、删服重建），它就不在网里了，表现是后端突然连不上库。第 5 节要求把它登记进部署文档与备份计划，

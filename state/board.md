@@ -29,8 +29,18 @@ CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→�
 
 - 取证已全：PG `15.19` → `pgvector/pgvector:pg15`；库 8.8 MB；4 网络全 bridge → 走 **B1**；
   接入网 `fga7l0ngdi1bx9ikv3dulent_bidmaster`。迁移前 public 表数留底 **18**。
-- 进度：backend 已停（前端不停服）、镜像已拉、`bidmaster-pg` 容器已建（`3825bf2eb5c0`）。
-  首个 `pg_isready` 报 `no response` —— **是正常的**：首次启动要先跑 `initdb`，文档已补「等 10 秒再判」。
+- 进度：dump/restore 双 `rc=0`，`vector 0.8.6` + `pg_trgm 1.6` 建成，18 表对平，
+  五张关键表行数新旧完全一致（users=1 / files=2 / openings=4 / extracts=0 / knowledge_bases=0），
+  backend 容器内解析 `bidmaster-pg` → `172.21.0.3`。**只剩改 `DATABASE_URL` 一步。**
+- 🔴 **新发现（比 pgvector 更底层）：生产从未配置任何 AI 供应商。** 后端容器实际 env 里
+  没有 `AI_PROVIDER`、没有 `DASHSCOPE_API_KEY`、没有 `DASHSCOPE_EMBEDDING_BASE_URL`，
+  与 `extracts=0`、`knowledge_bases=0` 互相印证——招标文件提取与知识库这条线在生产从来没跑过。
+  即：切完库，建索引仍会在 embedding 那步失败，那是**第二个独立阻塞**，别误判成第一个没修好。
+  可用值在本机 `.env.local:8`（35 字符 key）与 `:9`（embedding base url），我全程只量长度未打印值。
+- 配置真相源待定：compose 是手工写的（`build.context: /var/www/bid-master-web` + `Dockerfile`/`Dockerfile.frontend`），
+  但 `.env` 里多出 `SERVICE_NAME_BACKEND/FRONTEND` 两个不是我们写的键 → 疑为 Coolify 代写。
+  切之前必须先确定「改文件会不会被下次部署覆盖」，判据：Coolify 库 `environment_variables` 表里有没有 `DATABASE_URL` 行。
+
 - 自纠一处：runbook 里我把口令 `echo` 到终端，用户整块贴回对话 → 按我自己定的口径算外泄。
   改文档为 `umask 077` 落盘到 `/root/.bidmaster-pg-password`（可事后读回、不回显），
   并**换掉那个已进聊天记录的口令**——库还是空的，`docker rm -f` + `docker volume rm` 重来 30 秒，
