@@ -54,47 +54,90 @@ docker network inspect -f '{{.Driver}}' $NET
   后面任何 `psql`/`pg_dump` 都显式带 `-d`，不许用通配或循环。
 - 网络驱动是 `bridge` → 走 B1；是 `overlay` → `docker run` 会拒绝加入 swarm 网络，改走 B2。
 
-## 3. 迁移窗口内动作（B1，按序，每步带验证点）
+### 2.1 本机实测值（09-06 已跑完上面那段，下面第 3 节按这些值写好，可直接执行）
 
-数据在迁移期间不可写，先停后端——**只停 backend，前端继续服务**（读页面不受影响）：
+| 项 | 实测值 |
+| --- | --- |
+| PG 大版本 | `15.19` → 新镜像 `pgvector/pgvector:pg15` |
+| `bid_master` 体积 | `8815 kB`（8.8 MB）→ 迁移数秒，不需要专门窗口 |
+| 实例内的库 | `postgres`、`coolify`（Coolify 自己的，**不碰**）、`bid_master` |
+| `coolify-db` 超级用户 | 没有 `postgres` 角色；由 `printenv POSTGRES_USER` 取，存 shell 变量 `$U` |
+| backend 所在网络 | 4 个且全是 `bridge`：`bid-master-web_bidmaster`、`coolify`、`fga7l0ngdi1bx9ikv3dulent`、`fga7l0ngdi1bx9ikv3dulent_bidmaster` |
+
+新库接入网选 `fga7l0ngdi1bx9ikv3dulent_bidmaster`（Coolify 当前服务的 compose 网络）。
+不选 `coolify`：那是 Coolify 自己的管理网，把业务库挂进去会扩大它的可达面。
+
+**待查遗留**：`bid-master-web_bidmaster` 疑似早期手工 compose 部署留下的残骸网络。查一下还有没有容器在里面：
+
+    docker ps -a --filter network=bid-master-web_bidmaster --format '{{.Names}}'
+
+空则可清理（属 D 类生产状态漂移，不阻塞本迁移）。
+
+另外两点：换新 SSH 会话后 `$U` 会丢，重新 `printenv` 取一次；Docker Hub 拉取若超时，
+改用 `docker.m.daocloud.io/pgvector/pgvector:pg15`（只是拉取源不同，跑起来的容器完全一样）。
+
+## 3. 迁移动作（B1，参数已按 2.1 实测值写死，可整段直接执行）
+
+后端先停——**只停 backend，前端继续服务**（静态页不受影响）。8.8 MB 的库，整个写入中断只有几十秒：
 
 ```bash
-docker stop backend-fga7l0ngdi1bx9ikv3dulent          # 验证点：docker ps 里它不再是 Up
+U=$(docker exec coolify-db printenv POSTGRES_USER)      # 新会话必须重取
+docker exec coolify-db psql -U "$U" -d bid_master -tc "select count(*) from information_schema.tables where table_schema='public'"
+docker stop backend-fga7l0ngdi1bx9ikv3dulent            # 验证点：上一条的表数记下来，稍后要一致
 ```
 
 ```bash
-MAJ=<第2步 server_version 的大版本，如 16>
-PW=$(openssl rand -hex 24)
-docker run -d --name bidmaster-pg --restart unless-stopped --network "$NET" \
+PW=$(openssl rand -hex 24); echo "新库口令（只贴进 Coolify 环境变量，别贴聊天/别进 git）：$PW"
+docker run -d --name bidmaster-pg --restart unless-stopped \
+  --network fga7l0ngdi1bx9ikv3dulent_bidmaster --network-alias bidmaster-pg \
   -e POSTGRES_PASSWORD="***" -e POSTGRES_DB=bid_master \
   -e PGDATA=/var/lib/postgresql/data/pgdata \
   -v bidmaster_pg_data:/var/lib/postgresql/data \
-  pgvector/pgvector:pg$MAJ
+  pgvector/pgvector:pg15
 docker exec bidmaster-pg pg_isready -U postgres -d bid_master     # 验证点：accepting connections
 ```
 
-（`-e PGDATA` 子目录那行是官方镜像的硬性要求：named volume 根目录非空时它会拒绝初始化。）
+（`-e PGDATA` 指到子目录是官方镜像的硬性要求：named volume 根目录非空时它拒绝初始化。
+显式 `--network-alias` 是防一手——部分 Docker 版本不把容器名注册进 embedded DNS。）
 
 ```bash
-docker exec coolify-db   pg_dump   -U "$U"      -d bid_master -Fc -f /tmp/bid_master.dump; echo "dump rc=$?"
+docker exec coolify-db pg_dump -U "$U" -d bid_master -Fc -f /tmp/bid_master.dump; echo "dump rc=$?"
 docker cp coolify-db:/tmp/bid_master.dump /tmp/bid_master.dump
 docker cp /tmp/bid_master.dump bidmaster-pg:/tmp/bid_master.dump
-docker exec bidmaster-pg   pg_restore -U postgres -d bid_master --no-owner /tmp/bid_master.dump; echo "restore rc=$?"
+docker exec bidmaster-pg pg_restore -U postgres -d bid_master --no-owner /tmp/bid_master.dump; echo "restore rc=$?"
 ```
 
 两个 `rc=` **都必须是 0**，非 0 立刻停手贴回来——半截 restore 比不迁更糟。`--no-owner` 是因为两边角色名不同。
 
 ```bash
 docker exec bidmaster-pg psql -U postgres -d bid_master -c "CREATE EXTENSION IF NOT EXISTS vector;"
+docker exec bidmaster-pg psql -U postgres -d bid_master -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
 docker exec bidmaster-pg psql -U postgres -d bid_master -tc "select extname, extversion from pg_extension order by 1"
 docker exec bidmaster-pg psql -U postgres -d bid_master -tc "select count(*) from information_schema.tables where table_schema='public'"
 ```
+
+验证点：扩展列表出现 `vector | 0.8.x` 与 `pg_trgm | 1.6`；表数量与迁移前记下的那个数一致。
+这里手动建扩展只是为了**先验证镜像确实带 pgvector**，不等应用启动时再隐式建。
 
 验证点：扩展列表出现 `vector | 0.8.x`；表数量与迁移前一致（迁移前先在旧库跑同一条 count 留底）。
 
 ## 4. 切连接串（唯一影响线上的动作）
 
-在 Coolify 该服务的环境变量里把 `DATABASE_URL` 改为：
+**先验 DNS 再改配置**——不通的话改了也白改，而且改完的现象（连不上库）会让人以为是迁移坏了：
+
+```bash
+docker start backend-fga7l0ngdi1bx9ikv3dulent
+docker exec backend-fga7l0ngdi1bx9ikv3dulent python -c "import socket;print(socket.gethostbyname('bidmaster-pg'))"
+```
+
+出 IP 才算通。报 `gaierror` / 名字解析失败，说明该 compose 网络不认这个别名，退一步把它同时接入服务网络：
+
+```bash
+docker network connect fga7l0ngdi1bx9ikv3dulent bidmaster-pg
+docker exec backend-fga7l0ngdi1bx9ikv3dulent python -c "import socket;print(socket.gethostbyname('bidmaster-pg'))"
+```
+
+通了之后，在 Coolify 该服务的环境变量里把 `DATABASE_URL` 改为：
 
 ```
 postgresql://postgres:<PW>@bidmaster-pg:5432/bid_master
@@ -104,6 +147,10 @@ postgresql://postgres:<PW>@bidmaster-pg:5432/bid_master
 你本地终端与 Coolify 界面之间流转即可；若曾在聊天里出现，按 `credential-rotation-runbook.md` 的口径当外泄处理）。
 
 改完在 Coolify 里重新部署（或 `docker compose up -d` 该服务）。回滚方案就一条：把 `DATABASE_URL` 改回原值再部署。
+
+**一条已知的长期风险**：`bidmaster-pg` 不由 compose 管理，若哪天 Coolify 重建了这个服务的网络
+（改网络配置、删服重建），它就不在网里了，表现是后端突然连不上库。第 5 节要求把它登记进部署文档与备份计划，
+正是为了下次换机/重建时不至于无痕丢数据。
 
 ## 5. 验收（缺一条就不算完成）
 
