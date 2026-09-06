@@ -34,8 +34,9 @@ CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→�
   `grep -i pgvector` **无输出（rc=1）**= 那句从 09-04 起一直存在的 WARN 消失、`/api/auth/me` 仍 401。
   最硬的一条是「谁在连我」：新库 `pg_stat_activity` 有 `172.21.0.4`（后端）idle 连接，
   旧库除本次 psql 会话外**零活动连接**——排除「其实还连着旧库」这类假通过。
-- 待补的正证：`information_schema.columns where udt_name='vector'` 应能查到向量列（WARN 消失只证明注册成功，
-  查到 vector 类型列才证明应用真的用上了它）。
+- ✅ 正证已取得：`rag_chunks.embedding` 是 vector 类型列。且 **`rag_chunks` 不在迁移前那 18 张表里**
+  （旧库根本建不出它）——它是切换后应用自己建的，等于第二个独立证据：`init_schema` 这次真的走到了
+  带 vector 的那批语句并建成，而不只是「没报错」。
 - 🔴 **切库后剩两个独立事项，别混**：① 生产没配 AI 供应商，建索引会在 embedding 步失败，
   只需往 `.env` 追加 `DASHSCOPE_API_KEY` + `DASHSCOPE_EMBEDDING_BASE_URL` 两行（`rag_embedding_provider`
   默认已是 `dashscope`，故 `AI_PROVIDER` 不影响 embedding；但 `AI_PROVIDER` 默认 `deepseek` 且

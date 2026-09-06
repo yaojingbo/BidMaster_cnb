@@ -188,10 +188,21 @@ docker compose -f /data/coolify/services/fga7l0ngdi1bx9ikv3dulent/docker-compose
 ## 5. 验收（缺一条就不算完成）
 
 ```bash
-docker logs backend-fga7l0ngdi1bx9ikv3dulent 2>&1 | grep -i pgvector      # 应无 WARN 输出
+docker logs --since 3m backend-fga7l0ngdi1bx9ikv3dulent 2>&1 | grep -i pgvector; echo "grep rc=$?"
 docker inspect -f '重启次数={{.RestartCount}} 启动于={{.State.StartedAt}}' backend-fga7l0ngdi1bx9ikv3dulent
 curl -s -o /dev/null -w '%{http_code}\n' https://bidmaster.asia/api/auth/me   # 仍应是 401
+docker exec bidmaster-pg psql -U postgres -d bid_master -c "select client_addr, application_name, state from pg_stat_activity where datname='bid_master'"
+docker exec coolify-db psql -U "$U" -d bid_master -c "select client_addr, application_name, state from pg_stat_activity where datname='bid_master'"
+docker exec bidmaster-pg psql -U postgres -d bid_master -tc "select table_name, column_name from information_schema.columns where udt_name='vector'"
 ```
+
+`--since 3m` 按「刚部署完」写；隔久了跑要调大，否则什么都捞不到——**没匹配到不等于通过，那种通过是假的**。
+所以 `grep rc=1` 只在「启动于确实是刚才」成立时才算数。
+
+两条「谁在连我」是这里最硬的证据：新库应出现后端容器的 `172.x` idle 连接，旧库除本次 psql 会话外零活动连接。
+它排除的是「日志恰好没报 WARN、其实还连着旧库」这种光看日志看不出来的假通过。
+
+最后一条是正证：WARN 消失只证明编解码器注册成功，**查到 vector 类型的列才证明应用真的用上了它**。
 
 然后浏览器登录后**真跑一次知识库链路**：上传文件 → 建索引 → 检索一次拿到结果。
 理由：`CREATE EXTENSION` 成功只证明数据库准备好了，不证明 embedding 与检索链路通。这是本次事故最大的教训——
