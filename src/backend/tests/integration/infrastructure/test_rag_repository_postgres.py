@@ -83,3 +83,22 @@ async def test_failed_index_is_reset_for_retry(rag_db):
     assert retried["error_code"] is None
     assert retried["error_message"] is None
     assert await repository.claim_index(retried["id"], user_id) is True
+
+
+async def test_force_index_version_fits_column_and_is_unique(rag_db):
+    db, user_id, _kb_id, file_id = rag_db
+    repository = RagRepository(db)
+    config = {
+        "provider": "dashscope",
+        "model": "text-embedding-v3",
+        "dimension": 1024,
+        "chunking_version": "v1",
+        "index_version": "v2-embedding-v4",
+    }
+
+    first = await repository.create_index(user_id, file_id, "force-hash-1", config, force=True)
+    second = await repository.create_index(user_id, file_id, "force-hash-2", config, force=True)
+
+    assert len(first["index_version"]) <= 50
+    assert len(second["index_version"]) <= 50
+    assert first["index_version"] != second["index_version"]

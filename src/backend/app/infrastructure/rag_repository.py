@@ -11,6 +11,8 @@ from app.infrastructure.pg_storage import _serialize_row, _serialize_rows
 
 
 class RagRepository:
+    _MAX_INDEX_VERSION_LENGTH = 50
+
     def __init__(self, db: Database):
         self.db = db
 
@@ -44,7 +46,11 @@ class RagRepository:
         index_id = str(uuid.uuid4())
         effective_version = config["index_version"]
         if force:
-            effective_version = f"{effective_version}:force:{index_id}"
+            # 保留版本前缀，同时用短 UUID 保证强制重建不复用旧索引。
+            suffix = f":force:{uuid.uuid4().hex[:12]}"
+            effective_version = (
+                f"{effective_version[:self._MAX_INDEX_VERSION_LENGTH - len(suffix)]}{suffix}"
+            )
         row = await self.db.fetch_one(
             """INSERT INTO rag_indexes
                (id,file_id,user_id,source_hash,embedding_provider,embedding_model,embedding_dimension,
