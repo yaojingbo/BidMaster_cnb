@@ -3,6 +3,29 @@
 > 开工先读 `CLAUDE.md` + **`.42cog/` 四份** + 本文件 + `state/memory/MEMORY.md`。
 > **非轮规则：每轮有效工作必更新本文件**（倒序追加，新的在上）。
 
+## 2026-09-07 · `20260907-extract-empty-preview` 要素提取「完成但预览空」根因修复【本地测试通过，待部署】
+
+- **用户症状**：点要素提取，进度条显示「已完成提取」但预览框无输出，此前正常；用户怀疑是我改提示词导致。
+- **根因（运行时证据，非推测）**：
+  1. **提示词没被改过**：`git log` 确认我近期提交（`8ff678c` 等）只碰 `rag_answer_service.py`，从未碰 `prompt_builder.py` / `prompts/`。→ 不是提示词问题。
+  2. **dashscope 默认模型 `qwen3.6-plus` 免费额度用尽**：该默认值由 commit `4060820` 从 `qwen-turbo` 改成 `qwen3.6-plus`。真实 key 直连实测：`qwen3.6-plus`/`qwen3.6-flash` → 403 `AllocationQuota.FreeTierOnly`；`qwen-turbo`/`qwen-plus`/`qwen-max`/`qwen3.7-max` → 200 正常。
+  3. **空响应被掩盖成「已完成」**：`extract_service.py::_stream_llm_with_progress` 在 LLM 返回空内容时仍落库 `status=completed`（空 content/elements），前端据此显示「提取完成」但预览空。生产 `extracts` 表已有两条空记录（`9a61a33d`/`2f38562e`，content=0、elements=[]）佐证。
+- **修复**：
+  1. `lite_llm.py`：`MODEL_MAP["dashscope"]` 默认 `qwen3.6-plus` → `qwen-plus`（免费额度可用、结构输出更好）。
+  2. `extract_service.py`：LLM 返回空内容时改抛 `error` 事件、不落库 `completed`；`finally` 兜底也不再落库空内容的 `completed_disconnected`。
+  3. `lite_llm.py::_parse_api_error`：`AllocationQuota.FreeTierOnly`/`InvalidApiKey` 等常见错误翻译成中文可操作提示。
+- **本地验证（运行时证据）**：端到端（真实 key + 真实提取 prompt + `data/02_椒江污水双提标.md`）`qwen-plus` 返回 2068 字符、解析出 8 个要素（项目基本信息/资质要求/业绩要求/人员要求/评标办法/分值分配与评分细则/定标方法/合同条款），内容正确；`qwen3.6-plus` 明确抛 403（不再被掩盖）。新增 `test_extract_service.py` 两用例；后端全量 `137 passed`。
+- **仍需用户处理（唯一决策）**：dashscope 免费额度在 `qwen3.6-plus`/`qwen3.6-flash` 已耗尽。若用户浏览器 localStorage 里存的是这两个模型，需在「AI 设置」改选 `qwen-plus`/`qwen-turbo`/`qwen-max`，或充值 dashscope；代码默认已改 `qwen-plus`。
+
+## 2026-09-07 · 远程部署完成 + 生产运行时验收【部署已生效；发现 chat 额度阻塞】
+
+- **部署已生效（运行时证据，非构建日志）**：服务器 `git pull` 到 `27df975` → `docker compose up -d --build` 完成（backend 镜像 `0be94c6b0fef` 构建于 09-07 00:11，backend/frontend 容器 00:17-00:18 启动，无孤儿容器）。**硬证据**：容器内 `rag_answer_service.py:79` 已含新 prompt「② 可以基于多个片段归纳、概括、总结」——本次 RAG 修复代码真实跑在容器里，不是只看构建日志。
+- **时区澄清（自纠）**：上一轮误判「容器还是 6 小时前旧镜像」，实为 `09-06T16:18Z` = `09-07 00:18 CST`，正是本次部署重建容器的启动时刻；旧镜像误判作废。
+- **生产 embedding 真实调通**：容器内 `EmbeddingService().embed_texts` 对测试句返回 **1024 维向量**、provider=`dashscope`/`text-embedding-v4`；`.env:15-16` 的 `DASHSCOPE_API_KEY`+`DASHSCOPE_EMBEDDING_BASE_URL` 已被容器读到。board 🔴「生产建索引会在 embedding 步失败」就此收尾。
+- **🔴 chat 配额用尽（用户在 API 设置自行解决，无需改 .env）**：dashscope **chat** 调用 403 `AllocationQuota.FreeTierOnly`（免费额度用尽）。embedding 与 chat 是两把配额，embedding 通、chat 已耗光。**关键理解（用户澄清）**：chat 供应商 key 由用户在「API 设置」页面自行配置（加密存 `api_keys` 表，`lite_llm._get_api_key` 优先读用户 key、再兜底环境变量），**不需要写进生产 .env**。解决＝用户在 API 设置里换一个可用供应商配 key（zhipu/deepseek/minimax 等），或充值 dashscope；`AI_PROVIDER` 默认 `deepseek` 只是无用户配置时的兜底默认。
+- **仍差（真正的用户上台项）**：浏览器真跑「上传→建索引→检索→回答」，需用户登录（生产 auth 真实开启，users 表仅 `yaojingbo320`，密码不可反推）+ 上述 chat 额度解决。
+- **webhook 已接线到新脚本（09-07 完成）**：旧脚本 `/opt/webhookd/scripts/deploy-bidmaster.sh`（无健康门/回滚、且含明文 CNB token）已备份为 `deploy-bidmaster.sh.bak-20260907`，覆盖为仓库权威版 `scripts/deploy-bidmaster.sh`（fast-forward-only + 脏检查 + SHA 不可变 tag + 健康门 + 自动回滚），`bash -n` 语法 OK、与仓库 diff 一致、`chmod +x`。前提已验：`git fetch origin main` 无凭据成功（CNB 读公开，无需 Deploy Key）、健康门两 URL（`127.0.0.1:8000` + `https://bidmaster.asia`）均通、工作区 0 脏文件、`docker compose config --images` 返回 backend/frontend。下次 push 自动走新脚本。剩余凭据整改（webhook token 轮换、作废 CNB token）仍属用户已决定推迟事项。
+
 ## 2026-09-07 · `20260907-rag-answer-refusal` 知识库问答「依据不足」误拒根因修复【已推 main，部署已触发】
 
 - **根因（复现 + 运行时证据）**：抽取✅检索✅，问题在「生成」prompt 太死。用户问「招标特点/一般如何设置」是跨片段归纳题，旧 prompt「只能依据片段、禁止常识补全」把归纳判成无依据 → LLM 真拒绝。次要：context 标注 `[片段 N]` 与校验正则 `\[(\d+)]` 不一致，LLM 回 `[片段N]`/`[编号:N]` 时被误判无效引用。
