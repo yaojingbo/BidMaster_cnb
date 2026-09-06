@@ -25,6 +25,21 @@ CI/CD 主链路已通：合并→后端测试→前端构建→curl webhook→�
 - CI 过滤只作用于 CI：生产日志可见 paddlepaddle/paddleocr/markitdown/onnxruntime 全装，线上功能不减
 - 耗时构成：CI 约 6-8 min + 服务器构建约 7 min；其中新瓶颈是镜像 export/unpack（后端 110+31s、前端 81+16s，因 paddle 镜像体积大），下次 pip 层命中缓存后服务器侧约 2-3 min
 
+### 追加（09-06）：`20260906-pgvector-migration` 迁移执行中
+
+- 取证已全：PG `15.19` → `pgvector/pgvector:pg15`；库 8.8 MB；4 网络全 bridge → 走 **B1**；
+  接入网 `fga7l0ngdi1bx9ikv3dulent_bidmaster`。迁移前 public 表数留底 **18**。
+- 进度：backend 已停（前端不停服）、镜像已拉、`bidmaster-pg` 容器已建（`3825bf2eb5c0`）。
+  首个 `pg_isready` 报 `no response` —— **是正常的**：首次启动要先跑 `initdb`，文档已补「等 10 秒再判」。
+- 自纠一处：runbook 里我把口令 `echo` 到终端，用户整块贴回对话 → 按我自己定的口径算外泄。
+  改文档为 `umask 077` 落盘到 `/root/.bidmaster-pg-password`（可事后读回、不回显），
+  并**换掉那个已进聊天记录的口令**——库还是空的，`docker rm -f` + `docker volume rm` 重来 30 秒，
+  比带着外泄凭据上线便宜得多。
+- 下一步（顺序不可换）：重建容器用新口令 → `pg_isready` 过 → dump/restore（两个 rc 必须都 0）
+  → 建扩展 + 表数对平 18 → 后端容器内验 DNS → 改 Coolify `DATABASE_URL` → §5 验收含真跑一次
+  「上传 → 建索引 → 检索」。
+- 仍未做：A3 浏览器验收；合 `chore/deploy-hardening`（`f0ef67d`，**必须早于**在服务器装新脚本）。
+
 ### 追加（09-03 夜 → 09-04）：部署后 backend 进入崩溃重启循环
 
 22:14 那次「部署完成」只是构建与换容器成功，运行时没活：`docker ps` 显示

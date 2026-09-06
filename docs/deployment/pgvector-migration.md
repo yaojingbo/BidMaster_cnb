@@ -87,15 +87,23 @@ docker stop backend-fga7l0ngdi1bx9ikv3dulent            # 验证点：上一条�
 ```
 
 ```bash
-PW=$(openssl rand -hex 24); echo "新库口令（只贴进 Coolify 环境变量，别贴聊天/别进 git）：$PW"
+# 口令只落盘、不回显。之前写成 echo 到终端，结果整块输出被复制进对话，按本书自己的口径即视为外泄；
+# 落盘版既能事后读回（后面填 Coolify 要用），也不会顺带进聊天记录
+umask 077; openssl rand -hex 24 > /root/.bidmaster-pg-password
+PW=$(cat /root/.bidmaster-pg-password)
 docker run -d --name bidmaster-pg --restart unless-stopped \
   --network fga7l0ngdi1bx9ikv3dulent_bidmaster --network-alias bidmaster-pg \
   -e POSTGRES_PASSWORD="***" -e POSTGRES_DB=bid_master \
   -e PGDATA=/var/lib/postgresql/data/pgdata \
   -v bidmaster_pg_data:/var/lib/postgresql/data \
   pgvector/pgvector:pg15
-docker exec bidmaster-pg pg_isready -U postgres -d bid_master     # 验证点：accepting connections
+sleep 10; docker exec bidmaster-pg pg_isready -U postgres -d bid_master
 ```
+
+验证点：`accepting connections`。第一次报 `no response` 是**正常**的——镜像首次启动要先跑 `initdb`，
+十几秒内才开始监听；等 10 秒仍无响应再看 `docker logs --tail=20 bidmaster-pg` 定位，别急着重删容器。
+后面填 Coolify 用的口令随时 `cat /root/.bidmaster-pg-password` 取（复制到自己终端 → Coolify 界面之间即可，
+不必也不应贴进对话）。
 
 （`-e PGDATA` 指到子目录是官方镜像的硬性要求：named volume 根目录非空时它拒绝初始化。
 显式 `--network-alias` 是防一手——部分 Docker 版本不把容器名注册进 embedded DNS。）
@@ -119,8 +127,6 @@ docker exec bidmaster-pg psql -U postgres -d bid_master -tc "select count(*) fro
 验证点：扩展列表出现 `vector | 0.8.x` 与 `pg_trgm | 1.6`；表数量与迁移前记下的那个数一致。
 这里手动建扩展只是为了**先验证镜像确实带 pgvector**，不等应用启动时再隐式建。
 
-验证点：扩展列表出现 `vector | 0.8.x`；表数量与迁移前一致（迁移前先在旧库跑同一条 count 留底）。
-
 ## 4. 切连接串（唯一影响线上的动作）
 
 **先验 DNS 再改配置**——不通的话改了也白改，而且改完的现象（连不上库）会让人以为是迁移坏了：
@@ -143,8 +149,9 @@ docker exec backend-fga7l0ngdi1bx9ikv3dulent python -c "import socket;print(sock
 postgresql://postgres:<PW>@bidmaster-pg:5432/bid_master
 ```
 
-`<PW>` 用第 3 步生成的值。**这个值只存在于 Coolify 环境变量和服务器上，不进 git、不进聊天记录**（本次它只在
-你本地终端与 Coolify 界面之间流转即可；若曾在聊天里出现，按 `credential-rotation-runbook.md` 的口径当外泄处理）。
+`<PW>` 换成 `/root/.bidmaster-pg-password` 的内容。**这个值只存在于 Coolify 环境变量和服务器上，
+不进 git、不进聊天记录**（若曾在聊天里出现，按 `credential-rotation-runbook.md` 的口径当外泄处理：
+趁库还是空的 `docker rm -f bidmaster-pg && docker volume rm bidmaster_pg_data` 重来一次，成本 30 秒）。
 
 改完在 Coolify 里重新部署（或 `docker compose up -d` 该服务）。回滚方案就一条：把 `DATABASE_URL` 改回原值再部署。
 

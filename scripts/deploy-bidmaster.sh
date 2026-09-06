@@ -19,7 +19,9 @@ set -euo pipefail
 REPO_DIR="${REPO_DIR:-/var/www/bid-master-web}"
 COMPOSE_FILE="${COMPOSE_FILE:-/data/coolify/services/fga7l0ngdi1bx9ikv3dulent/docker-compose.yml}"
 DEPLOY_LOG="${DEPLOY_LOG:-/var/log/bidmaster-deploy.log}"
-STATE_FILE="${STATE_FILE:-/opt/webhookd/state/deployed-sha}"
+# 沿用生产旧版脚本已在用的路径，不换位置：本脚本是 drop-in 替换，若悄悄把状态文件挪到新目录，
+# 旧文件里那份回滚点就读不到了，而 docs/deployment/post-deploy-checklist.md D3 让人去核对的正是这个路径。
+STATE_FILE="${STATE_FILE:-/var/lib/bidmaster-deploy/last-good}"
 BACKEND_CONTAINER="${BACKEND_CONTAINER:-backend-fga7l0ngdi1bx9ikv3dulent}"
 HEALTH_URLS_DEFAULT="http://127.0.0.1:8000/api/health https://bidmaster.asia/api/health"
 HEALTH_URLS="${HEALTH_URLS:-$HEALTH_URLS_DEFAULT}"
