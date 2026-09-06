@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { TaskProgress } from '@/components/ui/TaskProgress';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { useFileUpload } from '@/hooks/useFileUpload';
+import { useSettingsStore } from '@/stores/settings-store';
 import { listFiles } from '@/lib/data-api';
 import {
   addKnowledgeFiles,
@@ -52,6 +53,8 @@ export default function KnowledgeDetailPage() {
   const [startingForce, setStartingForce] = useState(false);
   const [error, setError] = useState('');
   const abortRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeProvider = useSettingsStore(s => s.activeProvider);
 
   const load = useCallback(async () => {
     if (!requireAuth(`/knowledge/${knowledgeBaseId}`)) return;
@@ -192,6 +195,7 @@ export default function KnowledgeDetailPage() {
         question.trim(),
         selected.length > 0 ? selectedReadyIds : undefined,
         controller.signal,
+        activeProvider,
       );
       await consumeSse(response, eventData => {
         const data = JSON.parse(eventData.data);
@@ -230,10 +234,15 @@ export default function KnowledgeDetailPage() {
               <option value="" disabled>引用已有输出</option>
               {availableSources.map(source => <option key={`${source.source_type}:${source.source_ref_id}:${source.source_variant}`} value={`${source.source_type}:${source.source_ref_id}:${source.source_variant}`}>{source.display_name} · {source.provenance_type === 'derived_ai' ? 'AI成果' : source.provenance_type === 'derived_structured' ? '统计结果' : '提取结果'}</option>)}
             </select>
-            <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border px-4 text-sm font-medium">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadHook.isUploading}
+              className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+            >
               {uploadHook.isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}上传 PDF/ZIP
-              <input hidden type="file" accept=".pdf,.zip" onChange={upload} />
-            </label>
+            </button>
+            <input ref={fileInputRef} type="file" accept=".pdf,.zip" onChange={upload} className="file-sr-only" />
           </CardContent>
         </Card>
 

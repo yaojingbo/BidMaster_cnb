@@ -266,7 +266,7 @@ class LiteLLMService:
         Yields:
             Response chunks if streaming
         """
-        if self.settings.demo_mode is True or self.settings.auth_disabled is True:
+        if self.settings.demo_mode is True:
             async for chunk in self._demo_complete(messages, stream):
                 yield chunk
             return

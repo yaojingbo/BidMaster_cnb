@@ -16,7 +16,10 @@ interface ApiEnvelope<T> {
 }
 
 async function knowledgeFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await authFetch(`/api/knowledge/${path.replace(/^\//, '')}`, options);
+  // 直接调用后端真实路径 /api/knowledge-bases，不走 Next.js 代理改写。
+  // 生产环境 Traefik 将 /api/* 直接路由到后端，Next.js catch-all 代理不会执行。
+  // 开发环境 Next.js catch-all (app/api/[...path]) 会将 /api/knowledge-bases 转发到后端。
+  const response = await authFetch(`/api/${path.replace(/^\//, '')}`, options);
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload.error || payload.detail || `请求失败：HTTP ${response.status}`);
@@ -116,12 +119,13 @@ export async function getActiveIndexJob(
 export async function queryKnowledgeBase(
   id: string,
   question: string,
-  fileIds?: string[]
+  fileIds?: string[],
+  provider?: string,
 ): Promise<RagQueryResult> {
   return knowledgeFetch(`knowledge-bases/${id}/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, file_ids: fileIds?.length ? fileIds : undefined }),
+    body: JSON.stringify({ question, file_ids: fileIds?.length ? fileIds : undefined, provider }),
   });
 }
 
@@ -129,12 +133,13 @@ export async function streamKnowledgeQuery(
   id: string,
   question: string,
   fileIds?: string[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  provider?: string,
 ): Promise<Response> {
-  const response = await authFetchSSE(`/api/knowledge/knowledge-bases/${id}/query/stream`, {
+  const response = await authFetchSSE(`/api/knowledge-bases/${id}/query/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ question, file_ids: fileIds?.length ? fileIds : undefined }),
+    body: JSON.stringify({ question, file_ids: fileIds?.length ? fileIds : undefined, provider }),
     signal,
   });
   if (!response.ok) {
