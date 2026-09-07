@@ -45,9 +45,13 @@ async def lifespan(app: FastAPI):
                     f"RAG job recovery: recovered={recovery['recovered']}, "
                     f"abandoned={recovery['abandoned']}"
                 )
+        if settings.guest_mode:
+            from app.services.demo_data import seed_guest_demo_data
+            await seed_guest_demo_data()
+            print("Guest demo data ready")
         print("Database schema initialized")
     except Exception as e:
-        if settings.auth_disabled or settings.demo_mode:
+        if settings.auth_disabled or settings.demo_mode or settings.guest_mode:
             from app.infrastructure.pg_storage import enable_mock_storage
             enable_mock_storage()
             print(f"Database unavailable, using local mock storage: {e}")

@@ -17,6 +17,17 @@ DEMO_USER = {
     "is_active": True,
 }
 
+# 游客只读身份：游客模式下未登录用户仅可浏览只读数据，写操作仍需登录
+GUEST_USER = {
+    "id": "guest-demo",
+    "username": "guest-demo",
+    "email": "guest-demo@bidmaster.local",
+    "role": "guest",
+}
+
+# 游客只读允许的 HTTP 方法；其余方法（POST/PUT/PATCH/DELETE）仍要求登录
+_GUEST_READ_METHODS = {"GET", "HEAD"}
+
 
 async def get_current_user(request: Request) -> dict:
     """Extract and validate user from Authorization header."""
@@ -27,6 +38,14 @@ async def get_current_user(request: Request) -> dict:
 
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
+        # 游客模式：未登录用户可只读浏览（GET/HEAD），写操作仍返回 401 触发前端跳登录
+        if settings.guest_mode and request.method in _GUEST_READ_METHODS:
+            return {
+                "id": GUEST_USER["id"],
+                "username": GUEST_USER["username"],
+                "email": GUEST_USER["email"],
+                "role": GUEST_USER["role"],
+            }
         raise HTTPException(status_code=401, detail="未认证")
 
     token = auth_header[7:]

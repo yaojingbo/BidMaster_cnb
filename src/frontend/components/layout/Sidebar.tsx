@@ -135,7 +135,7 @@ export function Sidebar() {
           </Link>
           {isLoading ? (
             <span className="text-xs text-muted-foreground">加载中...</span>
-          ) : isAuthenticated && user ? (
+          ) : isAuthenticated && user && user.role !== "guest" ? (
             <div className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
                 <span className="text-sm font-bold text-primary">{user.username[0]}</span>
