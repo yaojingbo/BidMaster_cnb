@@ -50,36 +50,38 @@ const features = [
 export default function HomePage() {
   return (
     <div className="mx-auto max-w-7xl pb-8">
-      <section className="flex min-h-[470px] flex-col items-center justify-center text-center">
-        <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/5 px-4 py-2 text-sm font-semibold text-primary">
+      <section className="flex min-h-[360px] flex-col items-center justify-center py-10 text-center sm:min-h-[470px] sm:py-0">
+        <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary sm:px-4 sm:py-2 sm:text-sm">
           <span className="h-2 w-2 rounded-full bg-primary" />
           你的招投标 AI 工作台
         </div>
 
-        <h1 className="mt-8 text-[64px] font-extrabold leading-none tracking-tight text-foreground">
+        <h1 className="mt-6 text-5xl font-extrabold leading-none tracking-tight text-foreground sm:mt-8 sm:text-6xl md:text-[64px]">
           <span className="text-primary">Bid</span> Master
         </h1>
 
-        <p className="mt-8 text-[26px] font-semibold leading-tight tracking-tight text-foreground">
+        <p className="mt-6 text-balance text-lg font-semibold leading-tight tracking-tight text-foreground sm:mt-8 sm:text-2xl md:text-[26px]">
           <span className="text-primary">更快</span>地提取 ·{' '}
           <span className="text-primary">更稳</span>地编制 ·{' '}
           <span className="text-primary">更清晰</span>地分析 ·{' '}
           <span className="text-primary">更强</span>的工具
         </p>
 
-        <p className="mt-5 text-lg text-muted-foreground">AI 时代的招投标工作流，一站备齐</p>
+        <p className="mt-4 text-sm text-muted-foreground sm:mt-5 sm:text-lg">
+          AI 时代的招投标工作流，一站备齐
+        </p>
 
-        <div className="mt-10 flex items-center justify-center gap-4">
+        <div className="mt-8 flex w-full flex-col items-stretch justify-center gap-3 sm:mt-10 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
           <Link
             href="/workbench"
-            className="inline-flex h-12 items-center gap-3 rounded-xl bg-primary px-7 text-base font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+            className="inline-flex h-12 items-center justify-center gap-3 rounded-xl bg-primary px-7 text-base font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
           >
             进入工作台
             <ArrowRight className="h-5 w-5" />
           </Link>
           <Link
             href="/statistics"
-            className="inline-flex h-12 items-center rounded-xl border border-border bg-card px-7 text-base font-semibold text-foreground shadow-sm transition-colors hover:bg-muted"
+            className="inline-flex h-12 items-center justify-center rounded-xl border border-border bg-card px-7 text-base font-semibold text-foreground shadow-sm transition-colors hover:bg-muted"
           >
             查看功能演示
           </Link>
@@ -87,35 +89,39 @@ export default function HomePage() {
       </section>
 
       <section className="pt-2">
-        <div className="mb-12 text-center">
-          <h2 className="text-4xl font-bold tracking-tight text-foreground">核心功能</h2>
-          <p className="mt-4 text-base text-muted-foreground">
+        <div className="mb-8 text-center sm:mb-12">
+          <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl md:text-4xl">
+            核心功能
+          </h2>
+          <p className="mt-3 text-pretty text-sm text-muted-foreground sm:mt-4 sm:text-base">
             提取关键要素 · 模拟编制文件 · 分析开标报价 · 管理知识数据
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-4">
           {features.map(feature => (
             <Link
               key={feature.href}
               href={feature.href}
-              className="group flex min-h-[320px] flex-col rounded-2xl border border-border bg-card p-8 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md"
+              className="group flex flex-col rounded-2xl border border-border bg-card p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md sm:min-h-[320px] sm:p-8"
             >
-              <div className="mb-8 flex items-start justify-between">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
-                  <feature.icon className="h-7 w-7" />
+              <div className="mb-5 flex items-start justify-between sm:mb-8">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15 sm:h-14 sm:w-14">
+                  <feature.icon className="h-6 w-6 sm:h-7 sm:w-7" />
                 </div>
                 <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-primary/20 text-sm font-bold text-primary/40">
                   {feature.number}
                 </span>
               </div>
 
-              <h3 className="text-[22px] font-bold tracking-tight text-foreground transition-colors group-hover:text-primary">
+              <h3 className="text-xl font-bold tracking-tight text-foreground transition-colors group-hover:text-primary sm:text-[22px]">
                 {feature.title}
               </h3>
-              <p className="mt-4 text-[15px] leading-7 text-muted-foreground">{feature.desc}</p>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground sm:mt-4 sm:text-[15px] sm:leading-7">
+                {feature.desc}
+              </p>
 
-              <div className="mt-auto flex flex-wrap gap-2 pt-7">
+              <div className="mt-5 flex flex-wrap gap-2 sm:mt-auto sm:pt-7">
                 {feature.tags.map(tag => (
                   <span
                     key={tag}
