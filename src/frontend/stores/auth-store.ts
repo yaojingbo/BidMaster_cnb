@@ -11,7 +11,7 @@ import { useTaskStore } from "@/stores/task-store";
 import { useLogStore } from "@/stores/log-store";
 
 const AUTH_DISABLED = process.env.NEXT_PUBLIC_AUTH_DISABLED === "true";
-const GUEST_MODE = process.env.NEXT_PUBLIC_GUEST_MODE === "true";
+const GUEST_MODE = process.env.NEXT_PUBLIC_GUEST_MODE !== "false";
 
 const DEMO_USER: User = {
   id: "demo-user",

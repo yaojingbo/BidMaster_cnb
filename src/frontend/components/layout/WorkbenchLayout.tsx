@@ -111,7 +111,7 @@ export function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
         <div className="space-y-4 px-3 pt-8">
           {isLoading ? (
             <div className="text-sm text-muted-foreground">用户信息加载中...</div>
-          ) : isAuthenticated && user ? (
+          ) : isAuthenticated && user && user.role !== 'guest' ? (
             <>
               <div className="flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-2">
