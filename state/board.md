@@ -3,7 +3,31 @@
 > 开工先读 `CLAUDE.md` + **`.42cog/` 四份** + 本文件 + `state/memory/MEMORY.md`。
 > **非轮规则：每轮有效工作必更新本文件**（倒序追加，新的在上）。
 
-## 2026-09-07 · `20260907-extract-empty-preview` 要素提取「完成但预览空」根因修复【本地测试通过，待部署】
+## 2026-09-07 · `20260907-guest-mode` 游客模式「只读演示」+ 知识库演示数据【已提交，部署已触发，剩服务器设环境变量】
+
+- 背景：用户拍板「游客模式 = 产品特性」（非 V0 临时开关）。经 AskUserQuestion 定案「只读演示（推荐）」：未登录可浏览全部功能页 + 看预置演示数据；写操作（上传/提取/模拟/开标分析/知识库问答）与 AI 调用仍需登录，无 AI 成本风险。
+- 关键发现：前端本就支持「未登录浏览」（`(main)/layout.tsx` `protectedRoutes=[]`、`Sidebar` 已有「游客/登录/注册」态、`auth-fetch.ts` 对 GET 401 不跳转）。缺口只有两块——后端给无 token 的 GET 喂演示数据 + 让游客身份触发页面数据加载。
+- 实现（`get_current_user` 按 `request.method` 单点拦截，**未改 40+ 写端点**）：
+  1. 后端 `config.py` 加 `guest_mode: bool=False`；`auth_dep.py` 无 token 的 GET/HEAD → 返回 `GUEST_USER`（id=`guest-demo`、role=`guest`），非 GET 仍 401（前端已把写操作 401 转跳登录）。
+  2. 新增 `services/demo_data.py` 幂等种子：为 guest-demo 预置 2 文件 + 1 提取 + 1 开标（bid_ranking/bid_stats 对齐 `statistics/page.tsx` 字段）+ 1 模拟 + 2 项目源；`main.py` lifespan 在 `guest_mode` 时调用，并把 `guest_mode` 加入 mock 回退条件。
+  3. 前端 `auth-store.ts` 加 `NEXT_PUBLIC_GUEST_MODE` + `GUEST_USER`(role=guest) + `demoIdentity()`；`Sidebar.tsx` 对 `role==="guest"` 仍显示「游客/登录/注册」（不进退出登录态）。
+- 开关：后端 `GUEST_MODE=true` + 前端 `NEXT_PUBLIC_GUEST_MODE=true`（已补 `.env.example` 注释），**默认关闭 = 生产零影响**。
+- 验证：`py_compile` + venv import OK；前端 `tsc --noEmit` 0 错误；运行时冒烟 `get_current_user` 三分支通过（游客 GET→guest、游客 POST→401、关闭模式 GET→401）。
+- 知识库演示数据（轻量，已实现）：仅写 `knowledge_bases` + `knowledge_base_files` + `rag_indexes` 三张表元数据（「示例知识库」+ 2 文档 + 已索引），不做真实检索/embedding，问答为空；`index_config` 从运行时配置读取，与 `KnowledgeRepository` LATERAL JOIN 过滤一致。**纠正上文误解**：生产走本地 pgvector 路径（`RAG_SERVICE_ENABLED=false`、`text-embedding-v4`/1024），非独立 Mastra/Milvus 服务。
+- 本地验证（运行时证据）：种子后 `GET /api/knowledge-bases`（无 token）返回 `file_count=2`、`completed_count=2`；详情两文件均 `index_status=completed`、`chunk_count=12`；`POST /api/knowledge-bases` 无 token 返回 401。幂等：重复种子 KB 数仍为 1。
+- 未做/待办：① 服务器设 `GUEST_MODE=true` + `NEXT_PUBLIC_GUEST_MODE=true` 重启（SSH 需微信扫码，阻塞于 2FA）——否则代码已上线但游客模式默认关闭；② 部署后生产端浏览器真跑验收。
+
+
+## 2026-09-07 · `20260907-github-v0-import` GitHub 仓库刷新为最新代码、供 V0 UI 重设计导入【已完成】
+
+- 背景：用户计划把 UI 拿到 V0（v0.dev）重设计，需先把最新代码推到 GitHub 仓库 `https://github.com/yaojingbo/BidMaster_cnb.git`（本地 remote 名 `origin`），再由 V0 导入。
+- 动作：`git push origin a3b6ce3:main` 快进成功（`04a83fc..a3b6ce3`），GitHub `main` 现 = 最新代码 `a3b6ce3`（含要素提取修复）；同时 `git branch -f main a3b6ce3` 把本地 main 对齐（原先落后 21 提交）。
+- 安全核查（推送前）：无 >5MB 大文件、无真实密钥（sk-/ghp_/AKIA 扫描为空）、`.env`/`.env.local` 未被跟踪（仅 `.env.example` 模板），符合「敏感信息不入库」铁律。
+- 现状：本地 main / HEAD / github/main / cnb/main 四处同指 `a3b6ce3`。
+- 关键提醒（已告知用户）：V0 只管前端（`app/` Next.js 15 + `src/frontend/`），不碰 Python 后端；V0 是「生成新 UI 代码再搬回」，非原地换肤；gitignore 的 `.env.local`/`data/`/`_tmp/`/`_archive/` 不在 GitHub（正确，V0 不需要）。
+- 下一步：用户到 v0.dev 授权 GitHub → 导入 `yaojingbo/BidMaster_cnb`（默认 main）→ 逐屏下设计 prompt。
+
+## 2026-09-07 · `20260907-extract-empty-preview` 要素提取「完成但预览空」根因修复【已推 main，部署已触发，生产稳定，待用户上台验收】
 
 - **用户症状**：点要素提取，进度条显示「已完成提取」但预览框无输出，此前正常；用户怀疑是我改提示词导致。
 - **根因（运行时证据，非推测）**：
@@ -14,8 +38,9 @@
   1. `lite_llm.py`：`MODEL_MAP["dashscope"]` 默认 `qwen3.6-plus` → `qwen-plus`（免费额度可用、结构输出更好）。
   2. `extract_service.py`：LLM 返回空内容时改抛 `error` 事件、不落库 `completed`；`finally` 兜底也不再落库空内容的 `completed_disconnected`。
   3. `lite_llm.py::_parse_api_error`：`AllocationQuota.FreeTierOnly`/`InvalidApiKey` 等常见错误翻译成中文可操作提示。
-- **本地验证（运行时证据）**：端到端（真实 key + 真实提取 prompt + `data/02_椒江污水双提标.md`）`qwen-plus` 返回 2068 字符、解析出 8 个要素（项目基本信息/资质要求/业绩要求/人员要求/评标办法/分值分配与评分细则/定标方法/合同条款），内容正确；`qwen3.6-plus` 明确抛 403（不再被掩盖）。新增 `test_extract_service.py` 两用例；后端全量 `137 passed`。
-- **仍需用户处理（唯一决策）**：dashscope 免费额度在 `qwen3.6-plus`/`qwen3.6-flash` 已耗尽。若用户浏览器 localStorage 里存的是这两个模型，需在「AI 设置」改选 `qwen-plus`/`qwen-turbo`/`qwen-max`，或充值 dashscope；代码默认已改 `qwen-plus`。
+- **本地验证（运行时证据）**：端到端（真实 key + 真实提取 prompt + `data/02_椒江污水双提标.md`）`qwen-plus` 返回 2068 字符、解析出 8 个要素（项目基本信息/资质要求/业绩要求/人员要求/评标办法/分值分配与评分细则/定标方法/合同条款），内容正确；`qwen3.6-plus` 明确抛 403（不再被掩盖）。新增 `test_extract_service.py` 两用例；CI 精确命令（`--import-mode=importlib src/backend/tests/unit`）复跑 `136 passed`；已核实 `extract_service` 及其 import 链无 paddle/markitdown 模块级依赖，CI 过滤环境下可正常 import。
+- **部署（运行时证据）**：提交 `c264ad7`(fix) + `a3b6ce3`(docs) 已 `git push cnb HEAD:main`（`27df975..a3b6ce3`）触发 CNB CI→webhook→服务器自动部署。后台轮询生产健康接口 `https://bidmaster.asia/api/health` 55 次（UTC 23:38→23:56，约 18 分钟，覆盖 CI+构建+部署窗口）全程 `code=200`、无 502/超时/崩溃 → 生产未崩溃、未触发健康门回滚。**但「新镜像真在服务」无法仅凭公网 HTTP 证明**（健康接口 `git.commit=unknown`、构建期未注入 SHA、容器重启 <20s 会被轮询漏掉），需 SSH 或浏览器真跑确认。
+- **仍需用户处理（唯一决策）**：① dashscope 免费额度在 `qwen3.6-plus`/`qwen3.6-flash` 已耗尽（真实 key 实测 403 `AllocationQuota.FreeTierOnly`，报错原文 `Free quota exhausted... add funds or disable "use free tier only" mode`；`qwen-plus`/`qwen-turbo`/`qwen-max` 实测 200）。解法二选一：**充值** dashscope，或到百炼控制台**关闭「仅使用免费额度」开关**（关闭后按量计费需有余额）；不想付费就在「AI 设置」改选 `qwen-plus`/`qwen-turbo`/`qwen-max`，代码默认已改 `qwen-plus`。② 生产端最终验收（SSH 微信扫码确认新镜像上线 + 浏览器真跑「上传→提取」）阻塞于 2FA，由用户醒后上台。
 
 ## 2026-09-07 · 远程部署完成 + 生产运行时验收【部署已生效；发现 chat 额度阻塞】
 
