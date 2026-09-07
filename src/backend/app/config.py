@@ -101,6 +101,8 @@ class Settings(BaseSettings):
     # Auth
     auth_disabled: bool = False
     demo_mode: bool = False
+    # 游客模式：未登录用户可只读浏览（GET/HEAD），写操作与 AI 调用仍需登录
+    guest_mode: bool = False
 
     # File storage
     upload_dir: str = "./uploads"
