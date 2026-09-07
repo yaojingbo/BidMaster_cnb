@@ -1,17 +1,42 @@
 'use client';
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
-import { AlertTriangle, BookOpen, CheckCircle2, FilePlus2, Loader2, RefreshCw, Send, Trash2, Upload } from 'lucide-react';
+import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BookOpen,
+  Check,
+  CheckCircle2,
+  FilePlus2,
+  FileText,
+  Loader2,
+  MessageSquareText,
+  RefreshCw,
+  Send,
+  StopCircle,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import { WorkbenchLayout } from '@/components/layout/WorkbenchLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { TaskProgress } from '@/components/ui/TaskProgress';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { useFileUpload } from '@/hooks/useFileUpload';
 import { useSettingsStore } from '@/stores/settings-store';
+import { useAuthStore } from '@/stores/auth-store';
 import { listFiles } from '@/lib/data-api';
 import {
   addKnowledgeFiles,
@@ -27,15 +52,48 @@ import {
 } from '@/lib/knowledge-api';
 import { consumeSse } from '@/lib/sse-parser';
 import type { FileRecord } from '@/lib/data-api';
-import type { KnowledgeBaseDetail, KnowledgeSourceOption, RagCitation, RagExcludedFile, RagIndexJob, RagIndexJobItem, RagQueryResult } from '@/types/knowledge';
+import type {
+  KnowledgeBaseDetail,
+  KnowledgeSourceOption,
+  RagCitation,
+  RagExcludedFile,
+  RagIndexJob,
+  RagIndexJobItem,
+  RagQueryResult,
+} from '@/types/knowledge';
 
 const statusLabels: Record<string, string> = {
-  not_indexed: '未索引', pending: '等待索引', processing: '索引中', completed: '已完成', failed: '失败', stale: '需重建',
+  not_indexed: '未索引',
+  pending: '等待索引',
+  processing: '索引中',
+  completed: '可问答',
+  failed: '索引失败',
+  stale: '需重建',
 };
+
+const exampleQuestions = [
+  '这批文件中的投标保证金要求是什么？',
+  '整理主要废标条款，并标注引用来源。',
+  '项目评分办法中，商务分和技术分如何分配？',
+];
+
+function formatFileSize(size: number) {
+  if (!size) return '—';
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function statusClass(status: string) {
+  if (status === 'completed') return 'bg-primary/10 text-primary';
+  if (status === 'failed') return 'bg-destructive/10 text-destructive';
+  return 'bg-muted text-muted-foreground';
+}
 
 export default function KnowledgeDetailPage() {
   const { knowledgeBaseId } = useParams<{ knowledgeBaseId: string }>();
+  const router = useRouter();
   const requireAuth = useRequireAuth();
+  const user = useAuthStore(state => state.user);
   const [detail, setDetail] = useState<KnowledgeBaseDetail | null>(null);
   const [availableFiles, setAvailableFiles] = useState<FileRecord[]>([]);
   const [availableSources, setAvailableSources] = useState<KnowledgeSourceOption[]>([]);
@@ -43,6 +101,7 @@ export default function KnowledgeDetailPage() {
   const [jobItems, setJobItems] = useState<RagIndexJobItem[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [question, setQuestion] = useState('');
+  const [lastQuestion, setLastQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [citations, setCitations] = useState<RagCitation[]>([]);
   const [excluded, setExcluded] = useState<RagExcludedFile[]>([]);
@@ -52,22 +111,26 @@ export default function KnowledgeDetailPage() {
   const [isStartingIndex, setIsStartingIndex] = useState(false);
   const [startingForce, setStartingForce] = useState(false);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState<'files' | 'chat'>('files');
+  const [addOpen, setAddOpen] = useState(false);
+  const [selectedExisting, setSelectedExisting] = useState('');
+  const [selectedSource, setSelectedSource] = useState('');
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const activeProvider = useSettingsStore(s => s.activeProvider);
+  const activeProvider = useSettingsStore(state => state.activeProvider);
 
   const load = useCallback(async () => {
     if (!requireAuth(`/knowledge/${knowledgeBaseId}`)) return;
     setLoading(true);
     try {
-      const [kb, files, sources, activeJob] = await Promise.all([
+      const [knowledgeBase, files, sources, activeJob] = await Promise.all([
         getKnowledgeBase(knowledgeBaseId),
         listFiles({ page: 1, page_size: 100 }),
         listAvailableSources(knowledgeBaseId),
         getActiveIndexJob(knowledgeBaseId),
       ]);
-      setDetail(kb);
-      setAvailableFiles(files.files.filter(file => !kb.files.some(item => item.id === file.id)));
+      setDetail(knowledgeBase);
+      setAvailableFiles(files.files.filter(file => !knowledgeBase.files.some(item => item.id === file.id)));
       setAvailableSources(sources);
       if (activeJob?.job) {
         setJob(activeJob.job);
@@ -76,7 +139,7 @@ export default function KnowledgeDetailPage() {
       } else {
         setJobId(null);
       }
-      setSelected(current => current.filter(id => kb.files.some(file => file.id === id)));
+      setSelected(current => current.filter(id => knowledgeBase.files.some(file => file.id === id)));
       setError('');
     } catch (value) {
       setError(value instanceof Error ? value.message : String(value));
@@ -85,7 +148,10 @@ export default function KnowledgeDetailPage() {
     }
   }, [knowledgeBaseId, requireAuth]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   useEffect(() => () => abortRef.current?.abort(), []);
 
   useEffect(() => {
@@ -109,45 +175,85 @@ export default function KnowledgeDetailPage() {
     };
     void poll();
     const timer = window.setInterval(() => void poll(), 2000);
-    return () => { active = false; window.clearInterval(timer); };
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, [jobId, knowledgeBaseId, load]);
 
   const uploadHook = useFileUpload({
-    onSuccess: fileId => { void addKnowledgeFiles(knowledgeBaseId, [fileId]).then(load); },
+    onSuccess: fileId => {
+      void addKnowledgeFiles(knowledgeBaseId, [fileId]).then(load);
+    },
     onError: setError,
   });
 
-  const queryable = useMemo(() => detail?.files.filter(file => file.index_status === 'completed') || [], [detail]);
+  const queryable = useMemo(
+    () => detail?.files.filter(file => file.index_status === 'completed') || [],
+    [detail],
+  );
+  const allSelected = Boolean(detail?.files.length) && selected.length === detail?.files.length;
+  const selectedReadyCount = selected.filter(id => queryable.some(file => file.id === id)).length;
 
-  async function addExisting(fileId: string) {
-    if (!fileId) return;
-    await addKnowledgeFiles(knowledgeBaseId, [fileId]);
-    await load();
+  function requireMember() {
+    if (user?.role !== 'guest') return true;
+    router.push(`/login?callbackUrl=${encodeURIComponent(`/knowledge/${knowledgeBaseId}`)}`);
+    return false;
+  }
+
+  function openAddDialog() {
+    if (requireMember()) setAddOpen(true);
+  }
+
+  async function addExisting() {
+    if (!selectedExisting || !requireMember()) return;
+    try {
+      await addKnowledgeFiles(knowledgeBaseId, [selectedExisting]);
+      setSelectedExisting('');
+      setAddOpen(false);
+      await load();
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+    }
+  }
+
+  async function addExistingSource() {
+    if (!selectedSource || !requireMember()) return;
+    const source = availableSources.find(
+      item => `${item.source_type}:${item.source_ref_id}:${item.source_variant}` === selectedSource,
+    );
+    if (!source) return;
+    try {
+      await addKnowledgeSources(knowledgeBaseId, [source]);
+      setSelectedSource('');
+      setAddOpen(false);
+      await load();
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+    }
   }
 
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (file) {
+    if (!file || !requireMember()) return;
+    try {
       if (file.name.toLowerCase().endsWith('.zip')) {
         await uploadKnowledgeSource(knowledgeBaseId, file);
         await load();
       } else {
         await uploadHook.upload(file);
       }
+      setAddOpen(false);
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+    } finally {
+      event.target.value = '';
     }
-    event.target.value = '';
-  }
-
-  async function addExistingSource(value: string) {
-    const source = availableSources.find(item => `${item.source_type}:${item.source_ref_id}:${item.source_variant}` === value);
-    if (!source) return;
-    await addKnowledgeSources(knowledgeBaseId, [source]);
-    await load();
   }
 
   async function startIndex(force = false) {
-    if (!selected.length || isStartingIndex || jobId) return;
-    if (!window.confirm(`将解析 ${selected.length} 个文件并把文本片段发送至 DashScope text-embedding-v4，调用可能产生费用。索引将在后台异步执行，不影响文件预览和其他分析功能。是否继续？`)) return;
+    if (!selected.length || isStartingIndex || jobId || !requireMember()) return;
+    if (!window.confirm(`将解析 ${selected.length} 个文件并发送文本片段至 Embedding 服务，调用可能产生费用。是否继续？`)) return;
     setIsStartingIndex(true);
     setStartingForce(force);
     setError('');
@@ -175,25 +281,37 @@ export default function KnowledgeDetailPage() {
   }
 
   async function removeFile(fileId: string) {
-    await removeKnowledgeFile(knowledgeBaseId, fileId);
-    await load();
+    if (!requireMember()) return;
+    if (!window.confirm('确认从知识库移除这份资料？原始文件不会被删除。')) return;
+    try {
+      await removeKnowledgeFile(knowledgeBaseId, fileId);
+      await load();
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+    }
   }
 
   async function ask(event: FormEvent) {
     event.preventDefault();
-    if (!question.trim() || streaming) return;
-    setStreaming(true); setAnswer(''); setCitations([]); setExcluded([]); setError('');
+    if (!question.trim() || streaming || !requireMember()) return;
+    const prompt = question.trim();
+    setStreaming(true);
+    setLastQuestion(prompt);
+    setAnswer('');
+    setCitations([]);
+    setExcluded([]);
+    setError('');
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const selectedReadyIds = selected.filter(id => queryable.some(file => file.id === id));
-      if (selected.length > 0 && selectedReadyIds.length === 0) {
-        throw new Error('所选文件尚未完成索引，请选择已完成文件或取消勾选以查询整个知识库。');
+      const readyIds = selected.filter(id => queryable.some(file => file.id === id));
+      if (selected.length > 0 && readyIds.length === 0) {
+        throw new Error('所选文件尚未完成索引，请选择可问答文件或取消选择以查询整个知识库。');
       }
       const response = await streamKnowledgeQuery(
         knowledgeBaseId,
-        question.trim(),
-        selected.length > 0 ? selectedReadyIds : undefined,
+        prompt,
+        selected.length > 0 ? readyIds : undefined,
         controller.signal,
         activeProvider,
       );
@@ -204,53 +322,94 @@ export default function KnowledgeDetailPage() {
         if (eventData.event === 'excluded_files') setExcluded((data.excluded_files || []) as RagExcludedFile[]);
         if (eventData.event === 'done') {
           const result = data as RagQueryResult;
-          setAnswer(result.answer); setCitations(result.citations); setExcluded(result.excluded_files);
+          setAnswer(result.answer);
+          setCitations(result.citations);
+          setExcluded(result.excluded_files);
         }
         if (eventData.event === 'error') setError(data.message || '问答失败');
       });
     } catch (value) {
       if (!controller.signal.aborted) setError(value instanceof Error ? value.message : String(value));
     } finally {
-      setStreaming(false); abortRef.current = null;
+      setStreaming(false);
+      abortRef.current = null;
     }
   }
 
-  if (loading && !detail) return <WorkbenchLayout><div className="flex items-center gap-2 py-12"><Loader2 className="h-4 w-4 animate-spin" />正在加载知识库...</div></WorkbenchLayout>;
+  if (loading && !detail) {
+    return (
+      <WorkbenchLayout>
+        <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />正在加载知识库…
+        </div>
+      </WorkbenchLayout>
+    );
+  }
 
   return (
     <WorkbenchLayout>
-      <div className="space-y-6 pb-12">
-        <PageHeader title={detail?.name || '知识库'} description={detail?.description || '管理文件索引并进行带引用问答。'} />
-        {error && <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div>}
+      <div className="flex flex-col gap-6 pb-12">
+        <div className="flex flex-col gap-4">
+          <Link href="/knowledge" className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="size-4" />返回知识库
+          </Link>
+          <PageHeader
+            title={detail?.name || '知识库'}
+            description={detail?.description || '管理资料索引，并进行带引用的知识问答。'}
+            actions={
+              <Button onClick={openAddDialog}>
+                <FilePlus2 data-icon="inline-start" />添加资料
+              </Button>
+            }
+          />
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
+            <span><strong className="font-semibold text-foreground">{detail?.files.length || 0}</strong> 份资料</span>
+            <span><strong className="font-semibold text-foreground">{queryable.length}</strong> 份可问答</span>
+            {(detail?.processing_count || 0) > 0 && <span className="text-primary">正在建立索引</span>}
+            {(detail?.failed_count || 0) > 0 && <span className="text-destructive">{detail?.failed_count} 份索引失败</span>}
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader><CardTitle className="text-lg">添加文件</CardTitle><CardDescription>添加文件不会自动建立索引。</CardDescription></CardHeader>
-          <CardContent className="flex flex-wrap gap-3">
-            <select className="h-9 min-w-64 rounded-md border bg-background px-3 text-sm" defaultValue="" onChange={event => void addExisting(event.target.value)}>
-              <option value="" disabled>选择已有文件</option>
-              {availableFiles.map(file => <option key={file.id} value={file.id}>{file.original_name}</option>)}
-            </select>
-            <select className="h-9 min-w-64 rounded-md border bg-background px-3 text-sm" defaultValue="" onChange={event => void addExistingSource(event.target.value)}>
-              <option value="" disabled>引用已有输出</option>
-              {availableSources.map(source => <option key={`${source.source_type}:${source.source_ref_id}:${source.source_variant}`} value={`${source.source_type}:${source.source_ref_id}:${source.source_variant}`}>{source.display_name} · {source.provenance_type === 'derived_ai' ? 'AI成果' : source.provenance_type === 'derived_structured' ? '统计结果' : '提取结果'}</option>)}
-            </select>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadHook.isUploading}
-              className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {uploadHook.isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}上传 PDF/ZIP
-            </button>
-            <input ref={fileInputRef} type="file" accept=".pdf,.zip" onChange={upload} className="file-sr-only" />
-          </CardContent>
-        </Card>
+        {error && (
+          <div role="alert" className="flex items-start justify-between gap-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            <span>{error}</span>
+            <button type="button" onClick={() => setError('')} aria-label="关闭错误提示"><X className="size-4" /></button>
+          </div>
+        )}
 
-        <Card>
-          <CardHeader><CardTitle className="text-lg">文件与索引</CardTitle><CardDescription>勾选文件后手动开始索引；已完成文件可直接参与问答。</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
+        <div role="tablist" aria-label="知识库工作区" className="flex overflow-x-auto border-b">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'files'}
+            onClick={() => setActiveTab('files')}
+            className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'files' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          >
+            <FileText className="size-4" />资料与索引
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{detail?.files.length || 0}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'chat'}
+            onClick={() => setActiveTab('chat')}
+            className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'chat' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          >
+            <MessageSquareText className="size-4" />知识问答
+          </button>
+        </div>
+
+        {activeTab === 'files' ? (
+          <section aria-label="资料与索引" className="flex flex-col gap-4">
             {job && (
-              <div className="space-y-2">
+              <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-semibold">索引任务</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">任务在后台执行，可以继续浏览其他页面。</p>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold text-primary">{Math.round(Number(job.progress_percent || 0))}%</span>
+                </div>
                 <TaskProgress
                   phases={[
                     { key: 'validating', label: '校验' },
@@ -268,46 +427,277 @@ export default function KnowledgeDetailPage() {
                   isDone={job.status === 'completed'}
                   errorMessage={['failed', 'partial_failed'].includes(job.status) ? (job.error_message || '部分文件索引失败') : null}
                 />
-                {jobItems.map(item => (
-                  <div key={item.id} className="rounded-md bg-muted/40 px-3 py-2 text-xs">
-                    <div className="flex justify-between gap-2"><span className="truncate">{item.display_name}</span><span>{Math.round(Number(item.progress_percent || 0))}%</span></div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded bg-muted"><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.min(100, Number(item.progress_percent || 0))}%` }} /></div>
-                    <p className="mt-1 text-muted-foreground">{item.progress_message || item.current_stage}{item.error_message ? ` · ${item.error_message}` : ''}</p>
+                {jobItems.length > 0 && (
+                  <div className="divide-y rounded-lg bg-muted/40 px-3">
+                    {jobItems.map(item => (
+                      <div key={item.id} className="flex items-center gap-3 py-3 text-sm">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium">{item.display_name}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.error_message || item.progress_message || item.current_stage}</p>
+                        </div>
+                        <span className="text-xs font-medium text-muted-foreground">{Math.round(Number(item.progress_percent || 0))}%</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
-            {!detail?.files.length ? <div className="flex items-center gap-2 py-6 text-muted-foreground"><FilePlus2 className="h-5 w-5" />尚未添加文件</div> : detail.files.map(file => (
-              <div key={file.id} className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
-                <input type="checkbox" checked={selected.includes(file.id)} onChange={event => setSelected(current => event.target.checked ? [...new Set([...current, file.id])] : current.filter(id => id !== file.id))} />
-                <div className="min-w-0 flex-1"><p className="truncate font-medium">{file.original_name}</p><p className="text-xs text-muted-foreground">{statusLabels[file.index_status]} · {file.chunk_count || 0} 个片段</p>{file.error_message && <p className="text-xs text-destructive">{file.error_message}</p>}</div>
-                {file.index_status === 'completed' ? <CheckCircle2 className="h-5 w-5 text-emerald-500" /> : file.index_status === 'failed' ? <AlertTriangle className="h-5 w-5 text-destructive" /> : null}
-                <Button variant="ghost" size="icon" onClick={() => void removeFile(file.id)} aria-label="从知识库移除"><Trash2 className="h-4 w-4" /></Button>
-              </div>
-            ))}
-            <div className="flex flex-wrap gap-2 pt-2">
-              <Button disabled={!selected.length || !!jobId || isStartingIndex} onClick={() => void startIndex(false)}>
-                {(jobId || (isStartingIndex && !startingForce)) ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookOpen className="h-4 w-4" />}
-                {isStartingIndex && !startingForce ? '正在创建任务' : '开始索引'}
-              </Button>
-              <Button variant="outline" disabled={!selected.length || !!jobId || isStartingIndex} onClick={() => void startIndex(true)}>
-                {isStartingIndex && startingForce ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                {isStartingIndex && startingForce ? '正在创建任务' : '重建索引'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader><CardTitle className="text-lg">问知识库</CardTitle><CardDescription>默认查询全部已完成索引；勾选文件后可限制范围。</CardDescription></CardHeader>
-          <CardContent className="space-y-4">
-            <form onSubmit={ask} className="flex gap-2"><Input value={question} onChange={event => setQuestion(event.target.value)} placeholder="例如：投标保证金和废标条款分别是什么？" /><Button type="submit" disabled={!question.trim() || !queryable.length || streaming}>{streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}提问</Button></form>
-            {streaming && <Button variant="outline" size="sm" onClick={() => abortRef.current?.abort()}>停止生成</Button>}
-            {excluded.length > 0 && <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">以下文件未参与检索：{excluded.map(item => `${item.file_name}（${statusLabels[item.reason] || item.reason}）`).join('、')}</div>}
-            {answer && <div className="rounded-lg border bg-muted/30 p-4 whitespace-pre-wrap leading-7">{answer}</div>}
-            {citations.length > 0 && <div className="space-y-2"><h3 className="font-semibold">引用来源</h3>{citations.map(item => <div key={item.chunk_id} className="rounded-lg border p-3 text-sm"><p className="font-medium">[{item.citation_id}] {item.file_name}</p><p className="text-xs text-muted-foreground">页码 {item.page_start ?? '未标注'}{item.page_end && item.page_end !== item.page_start ? `-${item.page_end}` : ''} · {item.section_path || '未标注章节'}</p><p className="mt-2 text-muted-foreground">{item.content_preview}</p></div>)}</div>}
-          </CardContent>
-        </Card>
+            <div className="overflow-hidden rounded-xl border bg-card">
+              <div className="flex flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                <div>
+                  <h2 className="font-semibold">资料</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">选择资料后可批量建立或重建索引。</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={openAddDialog}>
+                  <FilePlus2 data-icon="inline-start" />添加资料
+                </Button>
+              </div>
+
+              {detail?.files.length ? (
+                <>
+                  <div className="hidden grid-cols-[2rem_minmax(0,1fr)_8rem_6rem_3rem] items-center gap-3 border-b bg-muted/30 px-5 py-2.5 text-xs font-medium text-muted-foreground md:grid">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={() => setSelected(allSelected ? [] : detail.files.map(file => file.id))}
+                      aria-label={allSelected ? '取消选择全部资料' : '选择全部资料'}
+                      className="size-4 accent-primary"
+                    />
+                    <span>文件名</span><span>索引状态</span><span>片段</span><span className="sr-only">操作</span>
+                  </div>
+                  <div className="divide-y">
+                    {detail.files.map(file => (
+                      <div key={file.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)_2.25rem] items-start gap-3 px-4 py-4 transition-colors hover:bg-muted/30 sm:px-5 md:grid-cols-[2rem_minmax(0,1fr)_8rem_6rem_3rem] md:items-center">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(file.id)}
+                          onChange={event => setSelected(current => event.target.checked ? [...new Set([...current, file.id])] : current.filter(id => id !== file.id))}
+                          aria-label={`选择 ${file.original_name}`}
+                          className="mt-1 size-4 accent-primary md:mt-0"
+                        />
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                            <FileText className="size-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">{file.original_name}</p>
+                            <p className="mt-1 text-xs text-muted-foreground md:hidden">{formatFileSize(file.size)} · {file.chunk_count || 0} 个片段</p>
+                            {file.error_message && <p className="mt-1 line-clamp-2 text-xs text-destructive">{file.error_message}</p>}
+                          </div>
+                        </div>
+                        <div className="hidden md:block">
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(file.index_status)}`}>{statusLabels[file.index_status]}</span>
+                        </div>
+                        <span className="hidden text-sm text-muted-foreground md:block">{file.chunk_count || 0}</span>
+                        <Button variant="ghost" size="icon" onClick={() => void removeFile(file.id)} aria-label={`移除 ${file.original_name}`}>
+                          <Trash2 />
+                        </Button>
+                        <div className="col-start-2 flex items-center gap-2 md:hidden">
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(file.index_status)}`}>{statusLabels[file.index_status]}</span>
+                          {file.index_status === 'completed' && <CheckCircle2 className="size-4 text-primary" />}
+                          {file.index_status === 'failed' && <AlertTriangle className="size-4 text-destructive" />}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+                  <div className="flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground"><FilePlus2 className="size-5" /></div>
+                  <div>
+                    <p className="font-semibold">还没有资料</p>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">添加已有文件、分析成果，或上传 PDF/ZIP。</p>
+                  </div>
+                  <Button onClick={openAddDialog}><FilePlus2 data-icon="inline-start" />添加第一份资料</Button>
+                </div>
+              )}
+
+              {selected.length > 0 && (
+                <div className="flex flex-col gap-3 border-t bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground"><Check className="size-3.5" /></span>
+                    已选择 {selected.length} 份资料
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="ghost" size="sm" onClick={() => setSelected([])}>取消选择</Button>
+                    <Button variant="outline" size="sm" disabled={Boolean(jobId) || isStartingIndex} onClick={() => void startIndex(true)}>
+                      {isStartingIndex && startingForce ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
+                      重建索引
+                    </Button>
+                    <Button size="sm" disabled={Boolean(jobId) || isStartingIndex} onClick={() => void startIndex(false)}>
+                      {(jobId || (isStartingIndex && !startingForce)) ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <BookOpen data-icon="inline-start" />}
+                      开始索引
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        ) : (
+          <section aria-label="知识问答" className="mx-auto flex min-h-[560px] w-full max-w-5xl flex-col">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
+              <div>
+                <h2 className="font-semibold">知识问答</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {selected.length > 0 ? `检索已选资料中的 ${selectedReadyCount} 份可问答文件` : `检索全部 ${queryable.length} 份已索引资料`}
+                </p>
+              </div>
+              {selected.length > 0 && <Button variant="ghost" size="sm" onClick={() => setSelected([])}>恢复全部资料</Button>}
+            </div>
+
+            <div className="flex flex-1 flex-col py-6">
+              {!lastQuestion && !streaming ? (
+                <div className="m-auto flex max-w-2xl flex-col items-center gap-6 px-4 py-10 text-center">
+                  <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary"><MessageSquareText className="size-6" /></div>
+                  <div>
+                    <h3 className="text-lg font-semibold">从资料中找到有依据的答案</h3>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">每个回答都会标注文件、页码和原文片段，便于核对。</p>
+                  </div>
+                  <div className="grid w-full gap-2 text-left sm:grid-cols-3">
+                    {exampleQuestions.map(example => (
+                      <button
+                        key={example}
+                        type="button"
+                        onClick={() => setQuestion(example)}
+                        className="rounded-lg border px-4 py-3 text-sm leading-6 text-foreground transition-colors hover:border-primary/30 hover:bg-primary/5"
+                      >
+                        {example}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  <div className="flex min-w-0 flex-col gap-5">
+                    {lastQuestion && (
+                      <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground">
+                        {lastQuestion}
+                      </div>
+                    )}
+                    {(answer || streaming) && (
+                      <div className="flex items-start gap-3">
+                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><BookOpen className="size-4" /></div>
+                        <div className="min-w-0 flex-1 whitespace-pre-wrap text-sm leading-7 text-foreground">
+                          {answer || <span className="text-muted-foreground">正在检索并组织答案…</span>}
+                        </div>
+                      </div>
+                    )}
+                    {excluded.length > 0 && (
+                      <div className="rounded-lg bg-muted px-4 py-3 text-sm leading-6 text-muted-foreground">
+                        未参与检索：{excluded.map(item => `${item.file_name}（${statusLabels[item.reason] || item.reason}）`).join('、')}
+                      </div>
+                    )}
+                  </div>
+
+                  {citations.length > 0 && (
+                    <aside className="flex flex-col gap-2 lg:border-l lg:pl-5" aria-label="引用来源">
+                      <h3 className="mb-1 text-sm font-semibold">引用来源</h3>
+                      {citations.map(item => (
+                        <article key={item.chunk_id} className="rounded-lg bg-muted/50 p-3 text-sm">
+                          <p className="font-medium text-foreground"><span className="mr-1 text-primary">[{item.citation_id}]</span>{item.file_name}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            页码 {item.page_start ?? '未标注'}{item.page_end && item.page_end !== item.page_start ? `–${item.page_end}` : ''} · {item.section_path || '未标注章节'}
+                          </p>
+                          <p className="mt-2 line-clamp-4 text-xs leading-5 text-muted-foreground">{item.content_preview}</p>
+                        </article>
+                      ))}
+                    </aside>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={ask} className="sticky bottom-4 rounded-xl border bg-background p-2 shadow-lg">
+              <textarea
+                value={question}
+                onChange={event => setQuestion(event.target.value)}
+                placeholder={queryable.length ? '输入问题，答案将附带资料来源…' : '请先在“资料与索引”中建立索引'}
+                rows={2}
+                maxLength={2000}
+                disabled={!queryable.length}
+                className="w-full resize-none bg-transparent px-3 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+                aria-label="向知识库提问"
+              />
+              <div className="flex items-center justify-between gap-3 border-t px-2 pt-2">
+                <span className="truncate text-xs text-muted-foreground">{selected.length ? `已选 ${selected.length} 份资料` : '全部已索引资料'}</span>
+                {streaming ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => abortRef.current?.abort()}>
+                    <StopCircle data-icon="inline-start" />停止生成
+                  </Button>
+                ) : (
+                  <Button type="submit" size="sm" disabled={!question.trim() || !queryable.length}>
+                    <Send data-icon="inline-start" />提问
+                  </Button>
+                )}
+              </div>
+            </form>
+          </section>
+        )}
+
+        <Dialog open={addOpen} onOpenChange={setAddOpen}>
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle>添加资料</DialogTitle>
+              <DialogDescription>添加资料后不会自动建立索引，你可以回到列表中选择并开始索引。</DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-5">
+              <div className="flex flex-col gap-2">
+                <label htmlFor="existing-file" className="text-sm font-medium">从文件管理选择</label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <select
+                    id="existing-file"
+                    className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                    value={selectedExisting}
+                    onChange={event => setSelectedExisting(event.target.value)}
+                  >
+                    <option value="">选择已有文件</option>
+                    {availableFiles.map(file => <option key={file.id} value={file.id}>{file.original_name}</option>)}
+                  </select>
+                  <Button type="button" variant="outline" disabled={!selectedExisting} onClick={() => void addExisting()}>添加</Button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label htmlFor="existing-source" className="text-sm font-medium">引用已有成果</label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <select
+                    id="existing-source"
+                    className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                    value={selectedSource}
+                    onChange={event => setSelectedSource(event.target.value)}
+                  >
+                    <option value="">选择提取、模拟或开标分析成果</option>
+                    {availableSources.map(source => (
+                      <option
+                        key={`${source.source_type}:${source.source_ref_id}:${source.source_variant}`}
+                        value={`${source.source_type}:${source.source_ref_id}:${source.source_variant}`}
+                      >
+                        {source.display_name} · {source.provenance_type === 'derived_ai' ? 'AI 成果' : source.provenance_type === 'derived_structured' ? '统计结果' : '提取结果'}
+                      </option>
+                    ))}
+                  </select>
+                  <Button type="button" variant="outline" disabled={!selectedSource} onClick={() => void addExistingSource()}>引用</Button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <p className="text-sm font-medium">上传新文件</p>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadHook.isUploading}
+                  className="flex min-h-24 items-center justify-center gap-3 rounded-lg border border-dashed px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {uploadHook.isUploading ? <Loader2 className="size-5 animate-spin" /> : <Upload className="size-5" />}
+                  {uploadHook.isUploading ? '正在上传…' : '选择 PDF 或 ZIP 文件'}
+                </button>
+                <input ref={fileInputRef} type="file" accept=".pdf,.zip" onChange={upload} className="file-sr-only" />
+              </div>
+            </div>
+            <DialogFooter><DialogClose asChild><Button type="button" variant="outline">完成</Button></DialogClose></DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </WorkbenchLayout>
   );
