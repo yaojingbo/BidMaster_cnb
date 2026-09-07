@@ -17,6 +17,8 @@ import {
   Terminal,
   BookOpen,
   ChevronDown,
+  Menu,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BidMasterLogo } from '@/components/layout/BidMasterLogo';
@@ -40,9 +42,11 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user, isAuthenticated, isLoading, logout } = useAuthStore();
   const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setPendingHref(null);
+    setMobileOpen(false);
   }, [pathname]);
 
   return (
@@ -106,7 +110,8 @@ export function Sidebar() {
           </div>
         </nav>
 
-        <div className="flex shrink-0 items-center justify-end gap-2 sm:gap-3">
+        {/* 桌面端右侧操作区 */}
+        <div className="hidden shrink-0 items-center justify-end gap-2 md:flex sm:gap-3">
           <Link
             href="/docs"
             title="文档说明"
@@ -169,7 +174,131 @@ export function Sidebar() {
             </div>
           )}
         </div>
+
+        {/* 移动端：用户头像 + 菜单按钮 */}
+        <div className="flex shrink-0 items-center gap-2 md:hidden">
+          {isAuthenticated && user && (
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+              <span className="text-sm font-bold text-primary">{user.username[0]}</span>
+            </div>
+          )}
+          <button
+            type="button"
+            aria-label={mobileOpen ? '关闭菜单' : '打开菜单'}
+            aria-expanded={mobileOpen}
+            onClick={() => setMobileOpen(v => !v)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
+
+      {/* 移动端抽屉菜单 */}
+      {mobileOpen && (
+        <div className="md:hidden">
+          <button
+            type="button"
+            aria-label="关闭菜单"
+            className="fixed inset-0 top-16 z-30 cursor-default bg-foreground/20"
+            onClick={() => setMobileOpen(false)}
+          />
+          <nav className="relative z-40 max-h-[calc(100vh-4rem)] overflow-y-auto border-t border-border bg-background px-4 py-4 shadow-lg">
+            <div className="space-y-1">
+              {navItems.map(item => {
+                const active = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setPendingHref(item.href)}
+                    className={cn(
+                      'flex h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors',
+                      active
+                        ? 'bg-muted text-foreground'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    )}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+              <Link
+                href="/logs"
+                className={cn(
+                  'flex h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors',
+                  pathname === '/logs'
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                )}
+              >
+                <ScrollText className="h-4 w-4" />
+                系统日志
+              </Link>
+            </div>
+
+            <div className="my-3 border-t border-border" />
+
+            <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">文档</p>
+            <div className="space-y-1">
+              {docsItems.map(item => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  target={item.external ? '_blank' : undefined}
+                  rel={item.external ? 'noopener noreferrer' : undefined}
+                  className="flex h-11 items-center gap-3 rounded-xl px-3 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <BookOpen className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+
+            <div className="my-3 border-t border-border" />
+
+            {isLoading ? (
+              <p className="px-3 text-sm text-muted-foreground">加载中...</p>
+            ) : isAuthenticated && user ? (
+              <div className="flex items-center justify-between px-3 py-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                    <span className="text-sm font-bold text-primary">{user.username[0]}</span>
+                  </div>
+                  <span className="truncate text-sm font-medium text-foreground">
+                    {user.username}
+                  </span>
+                </div>
+                <button
+                  onClick={logout}
+                  className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <LogOut className="h-4 w-4" />
+                  退出
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-1">
+                <Link
+                  href="/login"
+                  className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  <LogIn className="h-4 w-4" />
+                  登录
+                </Link>
+                <Link
+                  href="/register"
+                  className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  注册
+                </Link>
+              </div>
+            )}
+          </nav>
+        </div>
+      )}
     </header>
   );
 }
