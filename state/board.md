@@ -3,6 +3,27 @@
 > 开工先读 `CLAUDE.md` + **`.42cog/` 四份** + 本文件 + `state/memory/MEMORY.md`。
 > **非轮规则：每轮有效工作必更新本文件**（倒序追加，新的在上）。
 
+## 2026-09-08 · `20260908-v0-ui-merge` V0 UI 重设计合并（11 文件 1:1 落地 + 本地知识库回归 + Codex 评审修复完成）【本地已验证，评审发现的 mock 降级回归已修】
+
+- 背景：用户把最新代码导入 v0.dev 重设计 UI，产出在 `resources/responsive-ui-design/`（同 `src/app/` 结构），指定 11 个文件 1:1 替换进项目（1 新增 + 10 修改）。
+- 差异分析结论（先 diff 再复制）：
+  1. **游客模式从「默认关」翻成「默认开」**（三处一致，属刻意）：`config.py` `guest_mode: False→True`、`auth-store.ts` `=== "true"`→`!== "false"`、`.env.example` 注释改「前后端默认开启」。⚠️ 这翻转了 09-07 那条「默认关闭=生产零影响」的结论——现在不设任何环境变量，生产即开只读演示（只读无 AI 成本，但属生产姿态变化，需在部署时知情）。
+  2. 知识库两页大改（列表 152→334 行、详情 314→732 行）：新建/添加资料改用 Dialog 弹窗；列表页**移除**内联全局问答（问答收敛到详情页）；新增 `requireMember()`（`user?.role !== 'guest'` 才放行写操作）成员门禁；新增 `getStatus()` 状态标签 + `totals` 汇总。
+  3. `WorkbenchLayout.tsx` 补上 `user.role !== 'guest'`（修复现状缺失 guest 角色判断的 bug）；`Sidebar.tsx` 加移动端抽屉菜单；`page.tsx`/`PageHeader.tsx`/`TabNavigation.tsx` 纯响应式 Tailwind（sm:/md: 前缀）。
+  4. 新增 `dialog.tsx` 用 `@radix-ui/react-dialog`（已是依赖 ^1.1.0，无需加）；其 `animate-in`/`fade-in-0`/`zoom-in-95` 类依赖 `tailwindcss-animate` 插件，项目 `tailwind.config.ts` `plugins:[]` 为空且未装该插件 → **纯动画不生效（弹窗仍正常开关，不报错），未加依赖**（用户未列 package.json/tailwind.config，且两者 V0 与项目 diff 为空）。
+- 本地验证（运行时证据，非只看构建）：
+  - `tsc --noEmit` 0 错误；`py_compile config.py` OK；`eslint src/app src/frontend --max-warnings=10` 0 错误（仅 statistics/page.tsx 2 条既有 warning，非本次改动文件）。
+  - 重启服务（后端显式 `GUEST_MODE=true AUTH_DISABLED=false RAG_SERVICE_ENABLED=false` 走本地 pgvector 路径；前端 `NEXT_PUBLIC_AUTH_DISABLED=false` 覆盖 `.env.local:10` 遗留的 `=true`，否则 initAuth 会把游客身份洗成 DEMO_USER role=user、`requireMember` 失效）。
+  - 后端 curl：`GET /api/knowledge-bases`（无 token）200 返「示例知识库」file_count=2/completed_count=2；`GET .../{id}` 200 两文件均 completed/chunk_count=12；`POST /api/knowledge-bases` 401（游客只读）。
+  - Playwright 前端：`/knowledge` 列表渲染「1 个知识库/2 份资料/2 份可问答」+「游客/登录/注册」态；点「新建知识库」→ `/login?callbackUrl=/knowledge`；`/knowledge/44ebd80a` 详情渲染两文件「可问答」+ 问答页签 exampleQuestions + 提问框；点「添加资料」→ `/login?callbackUrl=/knowledge/44ebd80a`；首页 `/` 响应式重设计正常。全流程 0 console error。
+- Codex + glm 评审（`codex exec -m glm-5.2 -c model_reasoning_effort=medium`）发现 **1 严重 + 1 中等**，均已修复并取运行时证据：
+  1. 🔴 严重（评审抓出、我此前漏掉的真实回归）：`main.py` lifespan except 分支把 `settings.guest_mode` 纳入了 mock 存储回退条件（`if auth_disabled or demo_mode or guest_mode: enable_mock_storage()`）。这条是 09-07 任务 #17 加的，当时 guest_mode 默认 False 无害；V0 把默认翻成 True 后，**任何未显式设 `GUEST_MODE=false` 的生产部署，DB 抖动/DSN 配错都会静默降级到内存 mock 存储——写操作丢重启即消失、无告警，比崩溃更危险**。修复：从该条件移除 `guest_mode`（加中文注释说明），guest 只影响鉴权放行、不改变存储容错策略。运行时证据：`DATABASE_URL=坏DSN GUEST_MODE=true` 启动 → `ConnectionRefusedError` + `Application startup failed. Exiting.`（崩溃），无「using local mock storage」，进程退出。
+  2. 🟡 中等：`auth-store.ts` 前端 `!== "false"` 与后端 pydantic bool 解析口径不一致（前端把 `0`/`no`/`off` 当 True，后端当 False）。修复：引入 `parseEnvBool`（undefined→默认 true；false/0/no/off→false），与 pydantic 对齐且保留默认开启语义。`tsc --noEmit` 0 错误。
+  - 复评（第二遍 codex 确认修复）`codex exec` 10 分钟超时（glm-5.2 卡在 stdin 读取，非代码问题）——未跑成，但两处修复均已独立验证（严重项有崩溃运行时证据、中项 tsc 通过），视为闭环。
+- 结论：V0 合并落地正确，知识库只读演示 + 游客门禁 + 响应式 UI 全通；评审发现的 mock 存储降级回归已修。
+- 遗留/待办：① 生产部署需知情「游客模式默认开」姿态变化（且现已确保 DB 故障会崩溃而非静默 mock）；② 独立的 Milvus Cloud 整库切换（用户澄清最终要 Milvus Cloud 而非 pgvector，属架构决策，**未在本次动作**，另立任务）。
+
+
 ## 2026-09-07 · `20260907-guest-mode` 游客模式「只读演示」+ 知识库演示数据【已提交，部署已触发，剩服务器设环境变量】
 
 - 背景：用户拍板「游客模式 = 产品特性」（非 V0 临时开关）。经 AskUserQuestion 定案「只读演示（推荐）」：未登录可浏览全部功能页 + 看预置演示数据；写操作（上传/提取/模拟/开标分析/知识库问答）与 AI 调用仍需登录，无 AI 成本风险。

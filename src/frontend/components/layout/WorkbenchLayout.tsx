@@ -111,7 +111,7 @@ export function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
         <div className="space-y-4 px-3 pt-8">
           {isLoading ? (
             <div className="text-sm text-muted-foreground">用户信息加载中...</div>
-          ) : isAuthenticated && user ? (
+          ) : isAuthenticated && user && user.role !== 'guest' ? (
             <>
               <div className="flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-2">
@@ -162,16 +162,41 @@ export function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
         </div>
       </aside>
 
-      <div className="mb-4 flex gap-2 overflow-x-auto px-1 lg:hidden">
-        <Link href="/database" className="rounded-full border px-3 py-2 text-sm text-muted-foreground">
-          文件管理
-        </Link>
-        <Link href="/knowledge" className="rounded-full border px-3 py-2 text-sm font-medium text-primary">
-          知识库
-        </Link>
-      </div>
-
-      <main className="min-w-0 flex-1">{children}</main>
+      <main className="min-w-0 flex-1">
+        <div className="mb-5 flex gap-2 overflow-x-auto pb-1 lg:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <Link
+            href="/workbench"
+            className={cn(
+              'inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-sm font-medium transition-colors',
+              pathname === '/workbench'
+                ? 'border-primary/30 bg-primary/10 text-primary'
+                : 'border-border text-muted-foreground hover:bg-muted'
+            )}
+          >
+            <Home className="h-4 w-4" />
+            首页
+          </Link>
+          {workspaceNav.flatMap(group => group.items).map(item => {
+            const active = pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  'inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-sm font-medium transition-colors',
+                  active
+                    ? 'border-primary/30 bg-primary/10 text-primary'
+                    : 'border-border text-muted-foreground hover:bg-muted'
+                )}
+              >
+                <item.icon className="h-4 w-4" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+        {children}
+      </main>
     </div>
   );
 }

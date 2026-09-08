@@ -51,7 +51,12 @@ async def lifespan(app: FastAPI):
             print("Guest demo data ready")
         print("Database schema initialized")
     except Exception as e:
-        if settings.auth_disabled or settings.demo_mode or settings.guest_mode:
+        # 仅 auth_disabled/demo_mode 允许在数据库不可用时静默回退到内存 mock 存储。
+        # 严禁在此处加入 guest_mode：游客模式默认开启后，若纳入该条件，任何未显式
+        # 关闭游客模式的部署（含生产）在 DB 抖动/DSN 配错时会静默降级到内存存储——
+        # 写操作丢重启即消失、运维无告警，比直接崩溃更危险。游客演示数据本就需要
+        # 真实 PG（seed 写入 knowledge_bases 等表），无库时理应崩溃而非 mock。
+        if settings.auth_disabled or settings.demo_mode:
             from app.infrastructure.pg_storage import enable_mock_storage
             enable_mock_storage()
             print(f"Database unavailable, using local mock storage: {e}")

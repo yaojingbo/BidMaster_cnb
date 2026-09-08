@@ -11,7 +11,14 @@ import { useTaskStore } from "@/stores/task-store";
 import { useLogStore } from "@/stores/log-store";
 
 const AUTH_DISABLED = process.env.NEXT_PUBLIC_AUTH_DISABLED === "true";
-const GUEST_MODE = process.env.NEXT_PUBLIC_GUEST_MODE === "true";
+// 与后端 pydantic 布尔解析保持一致：false/0/no/off 均视为关闭，其余视为开启。
+// 未设置时默认开启（fallback=true），与 config.py guest_mode=True 对齐，避免
+// 前后端在 NEXT_PUBLIC_GUEST_MODE=0/no/off 等非 "false" 写法下口径不一致。
+function parseEnvBool(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  return !["false", "0", "no", "off"].includes(value.trim().toLowerCase());
+}
+const GUEST_MODE = parseEnvBool(process.env.NEXT_PUBLIC_GUEST_MODE, true);
 
 const DEMO_USER: User = {
   id: "demo-user",
