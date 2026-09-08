@@ -7,7 +7,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   BookOpen,
-  Check,
   CheckCircle2,
   FilePlus2,
   FileText,
@@ -456,50 +455,98 @@ export default function KnowledgeDetailPage() {
 
               {detail?.files.length ? (
                 <>
-                  <div className="hidden grid-cols-[2rem_minmax(0,1fr)_8rem_6rem_3rem] items-center gap-3 border-b bg-muted/30 px-5 py-2.5 text-xs font-medium text-muted-foreground md:grid">
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={() => setSelected(allSelected ? [] : detail.files.map(file => file.id))}
-                      aria-label={allSelected ? '取消选择全部资料' : '选择全部资料'}
-                      className="size-4 accent-primary"
-                    />
-                    <span>文件名</span><span>索引状态</span><span>片段</span><span className="sr-only">操作</span>
+                  <div className="flex flex-col gap-3 border-b bg-muted/20 px-4 py-3 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="font-medium text-foreground">已选择 {selected.length} / {detail.files.length}</span>
+                      <span className="hidden text-muted-foreground sm:inline">选择文件后即可批量创建索引</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={allSelected}
+                        onClick={() => setSelected(detail.files.map(file => file.id))}
+                      >
+                        全选 {detail.files.length} 项
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={selected.length === 0}
+                        onClick={() => setSelected([])}
+                      >
+                        全不选
+                      </Button>
+                      <div className="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!selected.length || Boolean(jobId) || isStartingIndex}
+                        onClick={() => void startIndex(true)}
+                      >
+                        {isStartingIndex && startingForce ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
+                        重建索引
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={!selected.length || Boolean(jobId) || isStartingIndex}
+                        onClick={() => void startIndex(false)}
+                      >
+                        {(jobId || (isStartingIndex && !startingForce)) ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <BookOpen data-icon="inline-start" />}
+                        创建索引
+                      </Button>
+                    </div>
                   </div>
-                  <div className="divide-y">
-                    {detail.files.map(file => (
-                      <div key={file.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)_2.25rem] items-start gap-3 px-4 py-4 transition-colors hover:bg-muted/30 sm:px-5 md:grid-cols-[2rem_minmax(0,1fr)_8rem_6rem_3rem] md:items-center">
-                        <input
-                          type="checkbox"
-                          checked={selected.includes(file.id)}
-                          onChange={event => setSelected(current => event.target.checked ? [...new Set([...current, file.id])] : current.filter(id => id !== file.id))}
-                          aria-label={`选择 ${file.original_name}`}
-                          className="mt-1 size-4 accent-primary md:mt-0"
-                        />
-                        <div className="flex min-w-0 items-start gap-3">
-                          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                            <FileText className="size-4" />
+                  <div className="max-h-[60vh] overflow-y-auto">
+                    <div className="sticky top-0 hidden grid-cols-[2rem_minmax(0,1fr)_8rem_6rem_3rem] items-center gap-3 border-b bg-card px-5 py-2.5 text-xs font-medium text-muted-foreground md:grid">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={() => setSelected(allSelected ? [] : detail.files.map(file => file.id))}
+                        aria-label={allSelected ? '取消选择全部资料' : '选择全部资料'}
+                        className="size-4 accent-primary"
+                      />
+                      <span>文件名</span><span>索引状态</span><span>片段</span><span className="sr-only">操作</span>
+                    </div>
+                    <div className="divide-y">
+                      {detail.files.map(file => (
+                        <div key={file.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)_2.25rem] items-start gap-3 px-4 py-4 transition-colors hover:bg-muted/30 sm:px-5 md:grid-cols-[2rem_minmax(0,1fr)_8rem_6rem_3rem] md:items-center">
+                          <input
+                            type="checkbox"
+                            checked={selected.includes(file.id)}
+                            onChange={event => setSelected(current => event.target.checked ? [...new Set([...current, file.id])] : current.filter(id => id !== file.id))}
+                            aria-label={`选择 ${file.original_name}`}
+                            className="mt-1 size-4 accent-primary md:mt-0"
+                          />
+                          <div className="flex min-w-0 items-start gap-3">
+                            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                              <FileText className="size-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-foreground">{file.original_name}</p>
+                              <p className="mt-1 text-xs text-muted-foreground md:hidden">{formatFileSize(file.size)} · {file.chunk_count || 0} 个片段</p>
+                              {file.error_message && <p className="mt-1 line-clamp-2 text-xs text-destructive">{file.error_message}</p>}
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-foreground">{file.original_name}</p>
-                            <p className="mt-1 text-xs text-muted-foreground md:hidden">{formatFileSize(file.size)} · {file.chunk_count || 0} 个片段</p>
-                            {file.error_message && <p className="mt-1 line-clamp-2 text-xs text-destructive">{file.error_message}</p>}
+                          <div className="hidden md:block">
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(file.index_status)}`}>{statusLabels[file.index_status]}</span>
+                          </div>
+                          <span className="hidden text-sm text-muted-foreground md:block">{file.chunk_count || 0}</span>
+                          <Button variant="ghost" size="icon" onClick={() => void removeFile(file.id)} aria-label={`移除 ${file.original_name}`}>
+                            <Trash2 />
+                          </Button>
+                          <div className="col-start-2 flex items-center gap-2 md:hidden">
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(file.index_status)}`}>{statusLabels[file.index_status]}</span>
+                            {file.index_status === 'completed' && <CheckCircle2 className="size-4 text-primary" />}
+                            {file.index_status === 'failed' && <AlertTriangle className="size-4 text-destructive" />}
                           </div>
                         </div>
-                        <div className="hidden md:block">
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(file.index_status)}`}>{statusLabels[file.index_status]}</span>
-                        </div>
-                        <span className="hidden text-sm text-muted-foreground md:block">{file.chunk_count || 0}</span>
-                        <Button variant="ghost" size="icon" onClick={() => void removeFile(file.id)} aria-label={`移除 ${file.original_name}`}>
-                          <Trash2 />
-                        </Button>
-                        <div className="col-start-2 flex items-center gap-2 md:hidden">
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(file.index_status)}`}>{statusLabels[file.index_status]}</span>
-                          {file.index_status === 'completed' && <CheckCircle2 className="size-4 text-primary" />}
-                          {file.index_status === 'failed' && <AlertTriangle className="size-4 text-destructive" />}
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </>
               ) : (
@@ -513,25 +560,6 @@ export default function KnowledgeDetailPage() {
                 </div>
               )}
 
-              {selected.length > 0 && (
-                <div className="flex flex-col gap-3 border-t bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground"><Check className="size-3.5" /></span>
-                    已选择 {selected.length} 份资料
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => setSelected([])}>取消选择</Button>
-                    <Button variant="outline" size="sm" disabled={Boolean(jobId) || isStartingIndex} onClick={() => void startIndex(true)}>
-                      {isStartingIndex && startingForce ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
-                      重建索引
-                    </Button>
-                    <Button size="sm" disabled={Boolean(jobId) || isStartingIndex} onClick={() => void startIndex(false)}>
-                      {(jobId || (isStartingIndex && !startingForce)) ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <BookOpen data-icon="inline-start" />}
-                      开始索引
-                    </Button>
-                  </div>
-                </div>
-              )}
             </div>
           </section>
         ) : (
