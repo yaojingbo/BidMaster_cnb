@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
+  Download,
   FilePlus2,
   FileText,
   Loader2,
@@ -15,6 +16,8 @@ import {
   RefreshCw,
   Send,
   StopCircle,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   Upload,
   X,
@@ -88,6 +91,37 @@ function statusClass(status: string) {
   return 'bg-muted text-muted-foreground';
 }
 
+// 多轮问答消息：每条消息保留提问、回答、引用与反馈，避免新提问抹掉上一轮答案
+interface ChatMessage {
+  id: string;
+  question: string;
+  answer: string;
+  citations: RagCitation[];
+  excluded: RagExcludedFile[];
+  feedback: 'up' | 'down' | null;
+}
+
+// 下载单条问答为 Markdown（问题 + 回答 + 引用来源）
+function downloadAnswer(message: ChatMessage) {
+  const lines: string[] = [`问题：${message.question}`, '', '回答：', message.answer];
+  if (message.citations.length > 0) {
+    lines.push('', '引用来源：');
+    message.citations.forEach(citation => {
+      lines.push(`[${citation.citation_id}] ${citation.file_name}（页码 ${citation.page_start ?? '未标注'}）`);
+      if (citation.content_preview) lines.push(`    ${citation.content_preview}`);
+    });
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `问答-${message.question.slice(0, 30).replace(/[\\/:*?"<>|]/g, '_')}.md`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function KnowledgeDetailPage() {
   const { knowledgeBaseId } = useParams<{ knowledgeBaseId: string }>();
   const router = useRouter();
@@ -100,10 +134,7 @@ export default function KnowledgeDetailPage() {
   const [jobItems, setJobItems] = useState<RagIndexJobItem[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [question, setQuestion] = useState('');
-  const [lastQuestion, setLastQuestion] = useState('');
-  const [answer, setAnswer] = useState('');
-  const [citations, setCitations] = useState<RagCitation[]>([]);
-  const [excluded, setExcluded] = useState<RagExcludedFile[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [streaming, setStreaming] = useState(false);
@@ -116,6 +147,8 @@ export default function KnowledgeDetailPage() {
   const [selectedSource, setSelectedSource] = useState('');
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const nextMessageId = useRef(0);
+  const chatEndRef = useRef<HTMLDivElement>(null);
   const activeProvider = useSettingsStore(state => state.activeProvider);
 
   const load = useCallback(async () => {
@@ -152,6 +185,11 @@ export default function KnowledgeDetailPage() {
   }, [load]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // 新消息产生或回答流式更新时，自动滚动到底部
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -294,12 +332,25 @@ export default function KnowledgeDetailPage() {
     event.preventDefault();
     if (!question.trim() || streaming || !requireMember()) return;
     const prompt = question.trim();
+    const messageId = `msg-${nextMessageId.current++}`;
+    setQuestion('');
     setStreaming(true);
-    setLastQuestion(prompt);
-    setAnswer('');
-    setCitations([]);
-    setExcluded([]);
     setError('');
+    // 追加一条新消息（不抹掉历史），回答内容随 SSE 流式更新
+    setMessages(current => [
+      ...current,
+      { id: messageId, question: prompt, answer: '', citations: [], excluded: [], feedback: null },
+    ]);
+    const patchMessage = (patch: Partial<ChatMessage>) =>
+      setMessages(current => current.map(item => (item.id === messageId ? { ...item, ...patch } : item)));
+    const appendAnswer = (text: string) =>
+      setMessages(current =>
+        current.map(item => (item.id === messageId ? { ...item, answer: item.answer + text } : item)),
+      );
+    const appendCitation = (citation: RagCitation) =>
+      setMessages(current =>
+        current.map(item => (item.id === messageId ? { ...item, citations: [...item.citations, citation] } : item)),
+      );
     const controller = new AbortController();
     abortRef.current = controller;
     try {
@@ -316,14 +367,14 @@ export default function KnowledgeDetailPage() {
       );
       await consumeSse(response, eventData => {
         const data = JSON.parse(eventData.data);
-        if (eventData.event === 'content') setAnswer(current => current + data.text);
-        if (eventData.event === 'citation') setCitations(current => [...current, data as RagCitation]);
-        if (eventData.event === 'excluded_files') setExcluded((data.excluded_files || []) as RagExcludedFile[]);
+        if (eventData.event === 'content') appendAnswer(data.text ?? '');
+        if (eventData.event === 'citation') appendCitation(data as RagCitation);
+        if (eventData.event === 'excluded_files') {
+          patchMessage({ excluded: (data.excluded_files || []) as RagExcludedFile[] });
+        }
         if (eventData.event === 'done') {
           const result = data as RagQueryResult;
-          setAnswer(result.answer);
-          setCitations(result.citations);
-          setExcluded(result.excluded_files);
+          patchMessage({ answer: result.answer, citations: result.citations, excluded: result.excluded_files });
         }
         if (eventData.event === 'error') setError(data.message || '问答失败');
       });
@@ -333,6 +384,21 @@ export default function KnowledgeDetailPage() {
       setStreaming(false);
       abortRef.current = null;
     }
+  }
+
+  // 点赞/点踩反馈：再次点击同一项取消反馈
+  function setFeedback(messageId: string, feedback: 'up' | 'down') {
+    setMessages(current =>
+      current.map(item =>
+        item.id === messageId ? { ...item, feedback: item.feedback === feedback ? null : feedback } : item,
+      ),
+    );
+  }
+
+  // 清空对话：中止进行中的流式回答并清空消息列表
+  function clearChat() {
+    abortRef.current?.abort();
+    setMessages([]);
   }
 
   if (loading && !detail) {
@@ -575,7 +641,7 @@ export default function KnowledgeDetailPage() {
             </div>
 
             <div className="flex flex-1 flex-col py-6">
-              {!lastQuestion && !streaming ? (
+              {messages.length === 0 ? (
                 <div className="m-auto flex max-w-2xl flex-col items-center gap-6 px-4 py-10 text-center">
                   <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary"><MessageSquareText className="size-6" /></div>
                   <div>
@@ -596,42 +662,76 @@ export default function KnowledgeDetailPage() {
                   </div>
                 </div>
               ) : (
-                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-                  <div className="flex min-w-0 flex-col gap-5">
-                    {lastQuestion && (
-                      <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground">
-                        {lastQuestion}
-                      </div>
-                    )}
-                    {(answer || streaming) && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><BookOpen className="size-4" /></div>
-                        <div className="min-w-0 flex-1 whitespace-pre-wrap text-sm leading-7 text-foreground">
-                          {answer || <span className="text-muted-foreground">正在检索并组织答案…</span>}
+                <div className="flex flex-col gap-8">
+                  {messages.map(message => {
+                    const isStreamingThis = message.id === messages[messages.length - 1].id && streaming;
+                    const answerDone = Boolean(message.answer) && !isStreamingThis;
+                    return (
+                      <article key={message.id} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                        <div className="flex min-w-0 flex-col gap-3">
+                          <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground">
+                            {message.question}
+                          </div>
+                          {(message.answer || isStreamingThis) && (
+                            <div className="flex items-start gap-3">
+                              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><BookOpen className="size-4" /></div>
+                              <div className="min-w-0 flex-1 whitespace-pre-wrap text-sm leading-7 text-foreground">
+                                {message.answer || <span className="text-muted-foreground">正在检索并组织答案…</span>}
+                              </div>
+                            </div>
+                          )}
+                          {message.excluded.length > 0 && (
+                            <div className="rounded-lg bg-muted px-4 py-3 text-sm leading-6 text-muted-foreground">
+                              未参与检索：{message.excluded.map(item => `${item.file_name}（${statusLabels[item.reason] || item.reason}）`).join('、')}
+                            </div>
+                          )}
+                          {answerDone && (
+                            <div className="flex items-center gap-1">
+                              <Button variant="ghost" size="sm" onClick={() => downloadAnswer(message)}>
+                                <Download data-icon="inline-start" />下载回答
+                              </Button>
+                              <Button
+                                type="button"
+                                variant={message.feedback === 'up' ? 'secondary' : 'ghost'}
+                                size="icon"
+                                onClick={() => setFeedback(message.id, 'up')}
+                                aria-label="回答有帮助"
+                                aria-pressed={message.feedback === 'up'}
+                              >
+                                <ThumbsUp className="size-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant={message.feedback === 'down' ? 'secondary' : 'ghost'}
+                                size="icon"
+                                onClick={() => setFeedback(message.id, 'down')}
+                                aria-label="回答无帮助"
+                                aria-pressed={message.feedback === 'down'}
+                              >
+                                <ThumbsDown className="size-4" />
+                              </Button>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    )}
-                    {excluded.length > 0 && (
-                      <div className="rounded-lg bg-muted px-4 py-3 text-sm leading-6 text-muted-foreground">
-                        未参与检索：{excluded.map(item => `${item.file_name}（${statusLabels[item.reason] || item.reason}）`).join('、')}
-                      </div>
-                    )}
-                  </div>
 
-                  {citations.length > 0 && (
-                    <aside className="flex flex-col gap-2 lg:border-l lg:pl-5" aria-label="引用来源">
-                      <h3 className="mb-1 text-sm font-semibold">引用来源</h3>
-                      {citations.map(item => (
-                        <article key={item.chunk_id} className="rounded-lg bg-muted/50 p-3 text-sm">
-                          <p className="font-medium text-foreground"><span className="mr-1 text-primary">[{item.citation_id}]</span>{item.file_name}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            页码 {item.page_start ?? '未标注'}{item.page_end && item.page_end !== item.page_start ? `–${item.page_end}` : ''} · {item.section_path || '未标注章节'}
-                          </p>
-                          <p className="mt-2 line-clamp-4 text-xs leading-5 text-muted-foreground">{item.content_preview}</p>
-                        </article>
-                      ))}
-                    </aside>
-                  )}
+                        {message.citations.length > 0 && (
+                          <aside className="flex flex-col gap-2 lg:border-l lg:pl-5" aria-label="引用来源">
+                            <h3 className="mb-1 text-sm font-semibold">引用来源</h3>
+                            {message.citations.map(item => (
+                              <article key={item.chunk_id} className="rounded-lg bg-muted/50 p-3 text-sm">
+                                <p className="font-medium text-foreground"><span className="mr-1 text-primary">[{item.citation_id}]</span>{item.file_name}</p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  页码 {item.page_start ?? '未标注'}{item.page_end && item.page_end !== item.page_start ? `–${item.page_end}` : ''} · {item.section_path || '未标注章节'}
+                                </p>
+                                <p className="mt-2 line-clamp-4 text-xs leading-5 text-muted-foreground">{item.content_preview}</p>
+                              </article>
+                            ))}
+                          </aside>
+                        )}
+                      </article>
+                    );
+                  })}
+                  <div ref={chatEndRef} />
                 </div>
               )}
             </div>
@@ -640,6 +740,13 @@ export default function KnowledgeDetailPage() {
               <textarea
                 value={question}
                 onChange={event => setQuestion(event.target.value)}
+                onKeyDown={event => {
+                  // 回车发送；Shift+回车换行；中文输入法组合态回车不发送
+                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
                 placeholder={queryable.length ? '输入问题，答案将附带资料来源…' : '请先在“资料与索引”中建立索引'}
                 rows={2}
                 maxLength={2000}
@@ -649,15 +756,20 @@ export default function KnowledgeDetailPage() {
               />
               <div className="flex items-center justify-between gap-3 border-t px-2 pt-2">
                 <span className="truncate text-xs text-muted-foreground">{selected.length ? `已选 ${selected.length} 份资料` : '全部已索引资料'}</span>
-                {streaming ? (
-                  <Button type="button" variant="outline" size="sm" onClick={() => abortRef.current?.abort()}>
-                    <StopCircle data-icon="inline-start" />停止生成
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={clearChat} disabled={messages.length === 0}>
+                    <Trash2 data-icon="inline-start" />清屏
                   </Button>
-                ) : (
-                  <Button type="submit" size="sm" disabled={!question.trim() || !queryable.length}>
-                    <Send data-icon="inline-start" />提问
-                  </Button>
-                )}
+                  {streaming ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => abortRef.current?.abort()}>
+                      <StopCircle data-icon="inline-start" />停止生成
+                    </Button>
+                  ) : (
+                    <Button type="submit" size="sm" disabled={!question.trim() || !queryable.length}>
+                      <Send data-icon="inline-start" />提问
+                    </Button>
+                  )}
+                </div>
               </div>
             </form>
           </section>
