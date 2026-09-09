@@ -784,41 +784,37 @@ export default function KnowledgeDetailPage() {
             <div className="flex flex-col gap-5">
               <div className="flex flex-col gap-2">
                 <label htmlFor="existing-file" className="text-sm font-medium">从文件管理选择</label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <select
-                    id="existing-file"
-                    className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-                    value={selectedExisting}
-                    onChange={event => setSelectedExisting(event.target.value)}
-                  >
-                    <option value="">选择已有文件</option>
-                    {availableFiles.map(file => <option key={file.id} value={file.id}>{file.original_name}</option>)}
-                  </select>
-                  <Button type="button" variant="outline" disabled={!selectedExisting} onClick={() => void addExisting()}>添加</Button>
-                </div>
+                <select
+                  id="existing-file"
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={selectedExisting}
+                  onChange={event => setSelectedExisting(event.target.value)}
+                >
+                  <option value="">选择已有文件</option>
+                  {availableFiles.map(file => <option key={file.id} value={file.id}>{file.original_name}</option>)}
+                </select>
+                <Button type="button" variant="outline" className="self-center" disabled={!selectedExisting} onClick={() => void addExisting()}>添加</Button>
               </div>
 
               <div className="flex flex-col gap-2">
                 <label htmlFor="existing-source" className="text-sm font-medium">引用已有成果</label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <select
-                    id="existing-source"
-                    className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-                    value={selectedSource}
-                    onChange={event => setSelectedSource(event.target.value)}
-                  >
-                    <option value="">选择提取、模拟或开标分析成果</option>
-                    {availableSources.map(source => (
-                      <option
-                        key={`${source.source_type}:${source.source_ref_id}:${source.source_variant}`}
-                        value={`${source.source_type}:${source.source_ref_id}:${source.source_variant}`}
-                      >
-                        {source.display_name} · {source.provenance_type === 'derived_ai' ? 'AI 成果' : source.provenance_type === 'derived_structured' ? '统计结果' : '提取结果'}
-                      </option>
-                    ))}
-                  </select>
-                  <Button type="button" variant="outline" disabled={!selectedSource} onClick={() => void addExistingSource()}>引用</Button>
-                </div>
+                <select
+                  id="existing-source"
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={selectedSource}
+                  onChange={event => setSelectedSource(event.target.value)}
+                >
+                  <option value="">选择提取、模拟或开标分析成果</option>
+                  {availableSources.map(source => (
+                    <option
+                      key={`${source.source_type}:${source.source_ref_id}:${source.source_variant}`}
+                      value={`${source.source_type}:${source.source_ref_id}:${source.source_variant}`}
+                    >
+                      {source.display_name} · {source.provenance_type === 'derived_ai' ? 'AI 成果' : source.provenance_type === 'derived_structured' ? '统计结果' : '提取结果'}
+                    </option>
+                  ))}
+                </select>
+                <Button type="button" variant="outline" className="self-center" disabled={!selectedSource} onClick={() => void addExistingSource()}>引用</Button>
               </div>
 
               <div className="flex flex-col gap-2">
@@ -835,7 +831,7 @@ export default function KnowledgeDetailPage() {
                 <input ref={fileInputRef} type="file" accept=".pdf,.zip" onChange={upload} className="file-sr-only" />
               </div>
             </div>
-            <DialogFooter><DialogClose asChild><Button type="button" variant="outline">完成</Button></DialogClose></DialogFooter>
+            <DialogFooter className="sm:justify-center"><DialogClose asChild><Button type="button" variant="outline">完成</Button></DialogClose></DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
