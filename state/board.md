@@ -3,6 +3,12 @@
 > 开工先读 `CLAUDE.md` + **`.42cog/` 四份** + 本文件 + `state/memory/MEMORY.md`。
 > **非轮规则：每轮有效工作必更新本文件**（倒序追加，新的在上）。
 
+## 2026-09-09 · `20260909-kb-dialog-center` 知识库「添加资料」弹窗按钮/上传框居中【已修复+推送部署】
+
+- 用户截图指出弹窗按钮布局不合理。改 `src/app/(main)/knowledge/[knowledgeBaseId]/page.tsx`（添加资料弹窗）：
+  「添加/引用」按钮从贴下拉框右侧改为下拉框下方居中（`self-center`，下拉框 `w-full`），「完成」按钮从底部右对齐改居中（`DialogFooter sm:justify-center`）；上传拖拽框保持全宽、内容本就居中（与全宽下拉框等宽一致）。不超出可视区由 `DialogContent` 的 `max-h-[85vh] overflow-y-auto` 兜底。
+- 验证：`npx tsc --noEmit` 退出码 0。
+
 ## 2026-09-09 · `20260909-zilliz-vector-store` 向量库 pgvector → Zilliz Cloud（后端直连）【代码+迁移+全链路已验证；已评审修复+推送部署；剩生产 env 注入与生产迁移】
 
 > **本轮（09-09 深夜）闭环**：用户拍板方案 A（relabel v3→v2 + 重跑迁移）+ 本地测试 + 对抗性评审 + 通过后部署。中途被酒店 WiFi 认证门户阻断，网络恢复后补齐。
@@ -26,7 +32,7 @@
 - **关键发现（预存问题，非 Zilliz 引入）**：DB 里有两套 `index_version` 血统——后端活跃 `v2-embedding-v4`（d86a71bf 9 文件 + guest-demo 2 空索引）、rag-service 遗留 `v3_text_embedding_v4`（demo-user 7 文件，含真实「台州招标」5 份）。后端 `validate_member_files` 按 `index_version=v2-embedding-v4` 过滤，故 **demo-user 的「台州招标」等 7 文件对后端不可检索**（curl 查询返回 `NO_INDEXED_FILES`）——这与 Zilliz 切换无关，是 rag-service 集成遗留的版本错配。
 - **待办/需用户决策**：
   1. ✅ ~~demo-user 7 文件（含「台州招标」）index_version 错配~~ → **方案 A 已完成**：relabel（`UPDATE 7`）+ 重跑迁移（852 向量已入 Zilliz），台州招标本地可检索。
-  2. 🔴 **生产 env 注入 + 生产迁移（待用户上台，SSH 2FA）**：代码已推 `cnb main`（`84f3510`）触发部署。但生产 `.env` 需把 `RAG_VECTOR_STORE/ZILLIZ_URI/ZILLIZ_TOKEN/ZILLIZ_DB_NAME/RAG_VECTOR_COLLECTION` 五行走 `env_file:` 层（task #28），并跑生产 `make migrate-to-zilliz`（指向生产 DATABASE_URL）；若生产库也有 v3 错配数据需同步 relabel。注意 serverless **集合上限 5**。
+  2. ✅ ~~生产 env 注入 + 生产迁移~~ → **已完成并验证（09-09）**：五行走 `env_file:` 层（`/data/coolify/services/fga7l0ngdi1bx9ikv3dulent/.env`，首注入误落他处已纠正）→ `docker compose up -d backend` 重建（`Started` 11.2s）→ 容器 env 四行齐（RAG_VECTOR_STORE=zilliz/ZILLIZ_URI/ZILLIZ_DB_NAME/RAG_VECTOR_COLLECTION）、重启次数 0、health 200；生产迁移已验证。注意 serverless **集合上限 5**。
   3. ✅ ~~文件删除时 Zilliz 向量未清理~~ → **已接线**：files.py / database.py 删除端点 best-effort 调 `vector_store.delete_file`（Zilliz 删除失败不阻断文件删除，孤儿向量被回查过滤）。运行时验证写1读1→删后读0。
   4. chat LLM key（task #15）仍是生产「回答」步骤的前置（本地靠 DASHSCOPE_API_KEY 兜底跑通）。
 
