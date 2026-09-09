@@ -12,6 +12,8 @@ from app.infrastructure.pg_storage import _serialize_rows
 class VectorStoreProtocol(Protocol):
     async def vector_search(self, user_id: str, file_ids: list[str], vector: list[float], limit: int) -> list[dict]: ...
     async def keyword_search(self, user_id: str, file_ids: list[str], query: str, limit: int) -> list[dict]: ...
+    async def upsert_chunks(self, user_id: str, file_id: str, index_id: str, chunks: list[dict]) -> None: ...
+    async def delete_file(self, user_id: str, file_id: str) -> None: ...
 
 
 class PostgresVectorStore:
@@ -61,6 +63,23 @@ class PostgresVectorStore:
         )
         return _serialize_rows(rows)
 
+    async def upsert_chunks(self, user_id: str, file_id: str, index_id: str, chunks: list[dict]) -> None:
+        """pgvector 模式下向量已随 replace_chunks 写入 rag_chunks，无需额外动作。"""
+        return None
+
+    async def delete_file(self, user_id: str, file_id: str) -> None:
+        """pgvector 模式下向量随 rag_chunks 外键级联清理，无需额外动作。"""
+        return None
+
+
+def build_vector_store(db: Database) -> PostgresVectorStore:
+    """按配置返回向量存储实现：pgvector（默认）或 Zilliz Cloud。"""
+    settings = get_settings()
+    if settings.rag_vector_store == "zilliz":
+        from app.infrastructure.zilliz_vector_store import ZillizVectorStore
+        return ZillizVectorStore(db)
+    return PostgresVectorStore(db)
+
 
 def reciprocal_rank_fusion(vector_rows: list[dict], keyword_rows: list[dict], rrf_k: int = 60) -> list[dict]:
     merged: dict[str, dict] = {}
@@ -76,4 +95,4 @@ def reciprocal_rank_fusion(vector_rows: list[dict], keyword_rows: list[dict], rr
 
 
 async def get_vector_store() -> PostgresVectorStore:
-    return PostgresVectorStore(await get_database())
+    return build_vector_store(await get_database())

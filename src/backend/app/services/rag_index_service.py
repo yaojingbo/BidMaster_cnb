@@ -7,6 +7,7 @@ import uuid
 from app.config import get_settings
 from app.infrastructure.knowledge_repository import KnowledgeRepository
 from app.infrastructure.rag_repository import RagRepository
+from app.infrastructure.vector_store import VectorStoreProtocol
 from app.services.embedding_service import EmbeddingProvider
 from app.services.extract_service import extract_text_with_ocr
 from app.services.file_service import FileService
@@ -20,12 +21,14 @@ class RagIndexService:
         knowledge_repository: KnowledgeRepository,
         rag_repository: RagRepository,
         embedding: EmbeddingProvider,
+        vector_store: VectorStoreProtocol | None = None,
         file_service: FileService | None = None,
         chunker: RagChunker | None = None,
     ):
         self.knowledge_repository = knowledge_repository
         self.rag_repository = rag_repository
         self.embedding = embedding
+        self.vector_store = vector_store
         self.file_service = file_service or FileService()
         settings = get_settings()
         self.settings = settings
@@ -168,6 +171,8 @@ class RagIndexService:
             })
         await progress("processing", "persisting", 90, "正在写入向量索引")
         await self.rag_repository.replace_chunks(index["id"], index["file_id"], user_id, chunks)
+        if self.vector_store is not None:
+            await self.vector_store.upsert_chunks(user_id, index["file_id"], index["id"], chunks)
         await self.rag_repository.complete_index(index["id"], user_id, index["file_id"], len(chunks))
         await progress("completed", "completed", 100, f"索引完成，共 {len(chunks)} 个片段")
         return True

@@ -5,6 +5,7 @@
 """
 import io
 import json
+import logging
 import zipfile
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -29,8 +30,10 @@ from app.services.export_markdown_builder import (
 )
 from app.services.pdf_export_service import export_markdown_pdf
 from app.utils.auth_dep import get_current_user
+from app.infrastructure.vector_store import get_vector_store
 
 router = APIRouter(prefix="/data", tags=["data"])
+logger = logging.getLogger(__name__)
 
 
 class BatchDownloadRequest(BaseModel):
@@ -247,6 +250,11 @@ async def api_delete_file(file_id: str, current_user: dict = Depends(get_current
     deleted = await delete_file(file_id, user_id=current_user["id"])
     if not deleted:
         raise HTTPException(status_code=404, detail="File not found")
+    # 清理向量库中的该文件向量（pgvector 模式为 no-op；Zilliz 删除失败不阻断文件删除，孤儿向量被回查过滤）
+    try:
+        await (await get_vector_store()).delete_file(current_user["id"], file_id)
+    except Exception as exc:
+        logger.warning("删除文件向量失败（文件已删，向量将残留并被回查过滤）：file_id=%s err=%s", file_id, exc)
     return {"success": True}
 
 

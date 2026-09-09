@@ -90,6 +90,14 @@ class Settings(BaseSettings):
     rag_archive_max_path_depth: int = 10
     rag_archive_max_filename_bytes: int = 255
 
+    # 向量存储后端：pgvector（默认，内嵌 Postgres）| zilliz（Zilliz Cloud 托管 Milvus）。
+    # 切换后仅替换向量检索与写入，知识库元数据/片段内容仍存 Postgres（引用、关键词检索、查询日志不变）。
+    rag_vector_store: str = "pgvector"
+    zilliz_uri: str = ""
+    zilliz_token: str = ""
+    zilliz_db_name: str = ""
+    rag_vector_collection: str = "bidmaster_rag_chunks"
+
     # Encryption
     fernet_key: str = ""
 

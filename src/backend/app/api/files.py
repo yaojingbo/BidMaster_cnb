@@ -2,6 +2,7 @@
 File management API routes.
 所有端点强制认证，文件归属当前用户。
 """
+import logging
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pathlib import Path
@@ -12,9 +13,11 @@ from app.services.file_service import FileService
 from app.models.schemas import FileUploadResponse, FileListResponse, FileListItem
 from app.utils.exceptions import FileTooLargeError, UnsupportedFileTypeError
 from app.infrastructure.pg_storage import add_file, list_files as pg_list_files, get_file as pg_get_file, delete_file as pg_delete_file, _now, calculate_content_hash
+from app.infrastructure.vector_store import get_vector_store
 from app.utils.auth_dep import get_current_user
 
 router = APIRouter(prefix="/files", tags=["files"])
+logger = logging.getLogger(__name__)
 
 MIME_TYPE_EXTENSIONS = {
     "application/pdf": "pdf",
@@ -155,6 +158,12 @@ async def delete_file(file_id: str, current_user: dict = Depends(get_current_use
         file_service = FileService()
         deleted = await file_service.delete(file_id)
         await pg_delete_file(file_id, user_id=current_user["id"])
+        # 清理向量库中的该文件向量（pgvector 模式为 no-op；Zilliz 模式下删除失败不阻断文件删除，
+        # 孤儿向量会被检索回查过滤，仅需告警）
+        try:
+            await (await get_vector_store()).delete_file(current_user["id"], file_id)
+        except Exception as exc:
+            logger.warning("删除文件向量失败（文件已删，向量将残留并被回查过滤）：file_id=%s err=%s", file_id, exc)
         return {
             "success": deleted,
             "message": "File deleted" if deleted else "File not found"

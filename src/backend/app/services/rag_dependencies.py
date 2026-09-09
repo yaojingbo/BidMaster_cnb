@@ -5,7 +5,7 @@ from app.infrastructure.db_schema import get_rag_database_capability
 from app.infrastructure.knowledge_repository import KnowledgeRepository
 from app.infrastructure.knowledge_source_repository import KnowledgeSourceRepository
 from app.infrastructure.rag_repository import RagRepository
-from app.infrastructure.vector_store import PostgresVectorStore
+from app.infrastructure.vector_store import build_vector_store
 from app.services.embedding_service import EmbeddingService
 from app.services.knowledge_base_service import KnowledgeBaseService
 from app.services.knowledge_source_service import KnowledgeSourceService
@@ -35,8 +35,8 @@ async def build_rag_services() -> dict:
     source_repository = KnowledgeSourceRepository(db)
     rag_repository = RagRepository(db)
     embedding = EmbeddingService()
-    vector_store = PostgresVectorStore(db)
-    index_service = RagIndexService(knowledge_repository, rag_repository, embedding)
+    vector_store = build_vector_store(db)
+    index_service = RagIndexService(knowledge_repository, rag_repository, embedding, vector_store)
     return {
         "knowledge": KnowledgeBaseService(knowledge_repository),
         "sources": KnowledgeSourceService(source_repository, knowledge_repository),

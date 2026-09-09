@@ -1,4 +1,4 @@
-.PHONY: dev frontend backend rag-service stop restart install-cli test-backend-rag test-backend-rag-postgres test-frontend-unit type-check lint build test-rag test-all rag-check-env rag-real-test test-knowledge-e2e test-rag-service test-rag-smoke rag-health branch publish
+.PHONY: dev frontend backend rag-service stop restart install-cli test-backend-rag test-backend-rag-postgres test-frontend-unit type-check lint build test-rag test-all rag-check-env rag-real-test migrate-to-zilliz test-knowledge-e2e test-rag-service test-rag-smoke rag-health branch publish
 
 BACKEND_VENV := .venv
 
@@ -89,6 +89,9 @@ rag-check-env:
 
 rag-real-test: rag-check-env
 	@echo "请在已安装 vector、pg_trgm 的 PostgreSQL 环境执行真实 PDF 索引和问答验收。"
+
+migrate-to-zilliz:  ## 将现有 pgvector 向量迁移到 Zilliz Cloud（幂等，可重复执行）
+	PYTHONPATH=src/backend $(BACKEND_VENV)/bin/python scripts/migrate_pgvector_to_zilliz.py
 
 
 # ---- 分支与发布（仅封装 git，不重造轮子）----
