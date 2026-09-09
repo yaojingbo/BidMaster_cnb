@@ -3,12 +3,14 @@
 > 开工先读 `CLAUDE.md` + **`.42cog/` 四份** + 本文件 + `state/memory/MEMORY.md`。
 > **非轮规则：每轮有效工作必更新本文件**（倒序追加，新的在上）。
 
-## 2026-09-09 · `20260909-zilliz-vector-store` 向量库 pgvector → Zilliz Cloud（后端直连）【代码+迁移+全链路已验证；demo 数据 relabel 已落地；迁移/评审/部署被酒店 WiFi 认证门户阻断】
+## 2026-09-09 · `20260909-zilliz-vector-store` 向量库 pgvector → Zilliz Cloud（后端直连）【代码+迁移+全链路已验证；已评审修复+推送部署；剩生产 env 注入与生产迁移】
 
-> **本轮（09-09 深夜）新增进展**：用户拍板方案 A（relabel v3→v2 + 重跑迁移），并要求本地测试 + 对抗性评审（`codex exec -m glm-5.2`）+ 通过后部署。
+> **本轮（09-09 深夜）闭环**：用户拍板方案 A（relabel v3→v2 + 重跑迁移）+ 本地测试 + 对抗性评审 + 通过后部署。中途被酒店 WiFi 认证门户阻断，网络恢复后补齐。
 > - ✅ **relabel 已落地并验证**：`UPDATE rag_indexes SET index_version='v2-embedding-v4' WHERE index_version='v3_text_embedding_v4'` → `UPDATE 7`，全库 20 个 completed 索引现统一 v2，v3 清零。demo-user 从「2 文件 v2 + 7 文件 v3」→「9 文件 v2 / 854 chunks」，台州招标 7 文件（852 chunks）已纳入后端 `index_version=v2-embedding-v4` 过滤口径。
-> - ✅ **对抗性自审（代码级，codex 因网络不可用）全绿**：① 唯一约束 `uniq_rag_index_version(file_id,user_id,source_hash,...,index_version)` 无冲突（UPDATE 未报错）；② 无 `(user_id,file_id)` 持有 >1 个 completed 索引（迁移按文件 delete+upsert 安全，0 行）；③ 两血统 embedding 元数据一致（dashscope/text-embedding-v4/1024/v1 分块）；④ source_hash 均为 64 位 SHA256 hex（与后端血统一致 → `find_reusable_index` 重传复用正常）；⑤ 台州招标 chunk 正文为真实中文非乱码。
-> - 🔴 **网络阻断（酒店 WiFi 认证门户）**：当前网络所有外连 HTTPS 被 `haoportal.huazhu.com`（华住酒店 captive portal）302 拦截 + 自签证书。实测 `curl https://www.baidu.com / api.zhipuai.cn / ...zilliz.com.cn` 全部 302；`make migrate-to-zilliz` 抛 `httpx.ConnectTimeout`；codex 本地代理 `127.0.0.1:42772` 上游 `model-router.edu-aliyun.com` 也「error sending request」。→ **重跑迁移、对抗性评审、部署三步全部被网络阻断**，待网络恢复后机械执行（迁移幂等、评审命令现成、部署走 scripts/deploy-bidmaster.sh）。
+> - ✅ **迁移完成**：`make migrate-to-zilliz` 幂等重跑，18 文件 2322 向量（d86a71bf 1468 + demo-user 854，guest-demo 2 空文件跳过）写入 `bidmaster_rag_chunks_v2_embedding_v4`。
+> - ✅ **检索验证**：取台州招标 chunk 的 PG embedding 作查询向量，Zilliz `vector_search` top1 命中自身 score=1.0、top2~5 递减（0.37→0.36），正文回查正常。
+> - ✅ **对抗性评审（codex glm-5.2）**：无严重问题，核心检索路径正确；4 中等 + 6 轻微。已修 5 处（文件删除接线 delete_file、delete_file 补 ensure_collection、build_filter 空 file_ids 短路、_fetch_chunk_rows 补 index_config 过滤、VectorStoreProtocol 补签名）；delete_file 运行时验证「写1读1→删后读0」（有约 1s 一致性延迟，回查过滤兜底不影响正确性）。延后 5 项（维度校验、迁移 DISTINCT ON、非原子 upsert、_to_list None、httpx 连接池）为防御性/性能项，不阻塞。
+> - ✅ **已提交+推送部署**：两个 commit（`af4776f` UI 修复补充 + `84f3510` Zilliz 切换）推 `cnb main`（`8c93a3a..84f3510`），触发 CI build-and-deploy。全量单测 136 passed。
 
 - 背景：用户拍板「切到 Zilliz Cloud（托管 Milvus）替代 pgvector」。AskUserQuestion 确认 3 决策：① 委托现有 rag-service；② 全量重索引；③ 独立容器进 compose。**① 中途纠偏**：rag-service 是残缺 demo（KB 控制器 `files:[]`、目录级索引、query 只回 `{answer,sources}`），「委托它」等于把 Python 逻辑在 Node 重写一遍（违 DRY），故改为**后端直连 Zilliz**——只换向量存储层，其余 RAG 逻辑不动，pgvector 留作兜底，rag-service 仅作参考。已 flag 给用户、按「标记但不停」继续。
 - 实现（改 5 + 新增 2）：
@@ -23,9 +25,9 @@
   5. **全链路（上传→索引→检索→回答）**：本地真实跑通——上传中文 PDF（`3ec072eb`）→ 索引 completed（1 chunk）→ HTTP `/query` 返回 `refused=false`、`answer` 带 `[2]` 引用、`citations` 命中 `zilliz_e2e_cjk.pdf` chunk。后端无 import 错误重启成功。
 - **关键发现（预存问题，非 Zilliz 引入）**：DB 里有两套 `index_version` 血统——后端活跃 `v2-embedding-v4`（d86a71bf 9 文件 + guest-demo 2 空索引）、rag-service 遗留 `v3_text_embedding_v4`（demo-user 7 文件，含真实「台州招标」5 份）。后端 `validate_member_files` 按 `index_version=v2-embedding-v4` 过滤，故 **demo-user 的「台州招标」等 7 文件对后端不可检索**（curl 查询返回 `NO_INDEXED_FILES`）——这与 Zilliz 切换无关，是 rag-service 集成遗留的版本错配。
 - **待办/需用户决策**：
-  1. ✅ ~~demo-user 7 文件（含「台州招标」）index_version 错配~~ → **方案 A 已执行**：relabel（`UPDATE 7`）+ 全库 20 completed 索引统一 v2。**剩重跑 `make migrate-to-zilliz` 把 852 向量写入 Zilliz**（幂等，被网络阻断，待网络恢复）。
-  2. 生产 env 注入：`.env` 已本地填好，生产需把 `RAG_VECTOR_STORE/ZILLIZ_URI/ZILLIZ_TOKEN/ZILLIZ_DB_NAME/RAG_VECTOR_COLLECTION` 五行走 `env_file:` 层（task #28），并注意 serverless **集合上限 5**。
-  3. 文件删除时 Zilliz 向量未清理：`ZillizVectorStore.delete_file` 已实现但未接线到文件删除流程（`pg_storage.delete_file` 级联删 rag_chunks 后 Zilliz 向量会孤儿，被回查过滤无害，但会累积）。属卫生项，非阻塞。
+  1. ✅ ~~demo-user 7 文件（含「台州招标」）index_version 错配~~ → **方案 A 已完成**：relabel（`UPDATE 7`）+ 重跑迁移（852 向量已入 Zilliz），台州招标本地可检索。
+  2. 🔴 **生产 env 注入 + 生产迁移（待用户上台，SSH 2FA）**：代码已推 `cnb main`（`84f3510`）触发部署。但生产 `.env` 需把 `RAG_VECTOR_STORE/ZILLIZ_URI/ZILLIZ_TOKEN/ZILLIZ_DB_NAME/RAG_VECTOR_COLLECTION` 五行走 `env_file:` 层（task #28），并跑生产 `make migrate-to-zilliz`（指向生产 DATABASE_URL）；若生产库也有 v3 错配数据需同步 relabel。注意 serverless **集合上限 5**。
+  3. ✅ ~~文件删除时 Zilliz 向量未清理~~ → **已接线**：files.py / database.py 删除端点 best-effort 调 `vector_store.delete_file`（Zilliz 删除失败不阻断文件删除，孤儿向量被回查过滤）。运行时验证写1读1→删后读0。
   4. chat LLM key（task #15）仍是生产「回答」步骤的前置（本地靠 DASHSCOPE_API_KEY 兜底跑通）。
 
 ## 2026-09-08 · `20260908-kb-chat-multiturn` 知识库详情页三处 UI 修复（弹窗包裹 / 多轮对话 / 下载+反馈）【已实现，Playwright 运行时验证通过】
